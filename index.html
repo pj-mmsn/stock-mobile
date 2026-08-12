@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0d1117" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon-192.png" />
+  <!-- iOS 添加到主屏幕 -->
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <title>手机看盘</title>
+  <script type="module" crossorigin src="./assets/index-B7caClbi.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B2TWkKo4.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}))
+    }
+    // ===== 部署强制刷新：打开时对比最新 sw.js 版本号，不同自动 reload =====
+    // 缓存键含时间戳 → 绕过 CDN 缓存拿到最新 sw.js；reload 前写入新版本号防循环
+    (function () {
+      if (location.search.indexOf('v=') !== -1) return
+      fetch('./sw.js?v=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
+        const m = t.match(/CACHE = '([^']+)'/)
+        const ver = m ? m[1] : ''
+        if (!ver) return
+        const old = localStorage.getItem('sm_sw_ver')
+        if (old && old !== ver) {
+          localStorage.setItem('sm_sw_ver', ver)
+          location.replace(location.pathname + '?v=' + Date.now())
+        } else if (!old) {
+          localStorage.setItem('sm_sw_ver', ver)
+        }
+      }).catch(() => {})
+    })()
+  </script>
+</body>
+</html>
