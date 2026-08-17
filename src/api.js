@@ -364,11 +364,200 @@ export const saveSettings = async (s) =>
 
 // ============ AI 分析 ============
 export async function llmAnalyze(params) {
-  const d = await _json('/api/llm', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params), signal: AbortSignal.timeout(120000),
-  })
-  return d
+  const body = { ...params }
+  return _json('/api/llm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
+  }).catch(() => null)
+}
+
+// ========== 补齐函数（v55 完整版还原） ==========
+
+export const getQuote = (secid) => _json(`/api/quotes?codes=${secid}`, { signal: AbortSignal.timeout(8000), cache: 'no-store' })
+  .then(d => {
+    const code = String(secid).split('.')[1]
+    return (d && d[code]) || null
+  }).catch(() => null)
+
+export const getDetail = async (secid) => {
+  const [q, k, t] = await Promise.all([
+    getQuote(secid).catch(() => null),
+    getKlines(secid, 101).catch(() => []),
+    getTrends(secid).catch(() => []),
+  ])
+  let indicators = {}, klineAna = null, paict = null
+  if (k && k.length > 10) {
+    indicators = computeIndicators(k)
+    klineAna = computeKlineAna(k, indicators)
+    paict = computePaict(k)
+  }
+  return { quote: q, klines: k, trends: t, indicators, klineAna, paict }
+}
+
+export const getMarketStats = async () => _json('/api/market-temp', { signal: AbortSignal.timeout(8000), cache: 'no-store' })
+  .then(d => ({ up: d?.up ?? 0, down: d?.down ?? 0 })).catch(() => ({ up: 0, down: 0 }))
+
+export const getIndices = async () => {
+  try {
+    const d = await _json('/api/quotes?codes=1.000001,0.399001,100.HSI', { signal: AbortSignal.timeout(8000), cache: 'no-store' })
+    const out = { sh: 0, sz: 0, hk: 0 }
+    if (d) {
+      if (d['000001']?.chg != null) out.sh = d['000001'].chg
+      if (d['399001']?.chg != null) out.sz = d['399001'].chg
+      if (d['HSI']?.chg != null) out.hk = d['HSI'].chg
+    }
+    return out
+  } catch { return { sh: 0, sz: 0, hk: 0 } }
+}
+
+export const getSectors = async () => _json('/api/proxy?url=' + encodeURIComponent('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f2,f3,f12,f14,f104,f105,f128,f140'), { signal: AbortSignal.timeout(8000) })
+  .then(d => (d?.data?.diff || []).map(x => ({ name: x.f14, count: x.f104, flow: x.f62, code: x.f12 }))).catch(() => [])
+
+export const getConcepts = async () => _json('/api/proxy?url=' + encodeURIComponent('https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f2,f3,f12,f14,f104,f105,f128,f140'), { signal: AbortSignal.timeout(8000) })
+  .then(d => (d?.data?.diff || []).map(x => ({ name: x.f14, count: x.f104, flow: x.f62, code: x.f12 }))).catch(() => [])
+
+export const getFundSectors = getSectors
+export const getFundConcepts = getConcepts
+
+export const rsiScan = (range, limit = 200) => _json(`/api/rsi-scan?range=${range}&limit=${limit}`, { signal: AbortSignal.timeout(15000), cache: 'no-store' })
+  .then(d => ({ items: d?.items || [], total: d?.total || 0 })).catch(() => ({ items: [], total: 0 }))
+
+export const getSectorStocks = async (code) => {
+  if (!code) return []
+  const url = encodeURIComponent(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=b:${code}&fields=f2,f3,f12,f14`)
+  const d = await _json('/api/proxy?url=' + url, { signal: AbortSignal.timeout(10000) }).catch(() => null)
+  return (d?.data?.diff || []).map(x => ({
+    code: String(x.f12), name: x.f14, price: x.f2, change_pct: x.f3,
+    secid: (String(x.f12).startsWith('6') || String(x.f12).startsWith('9') ? '1.' : '0.') + x.f12,
+  }))
+}
+
+// ========== 指标计算（K线可推导，与后端同口径） ==========
+
+function ma(arr, n) {
+  const out = []
+  let sum = 0
+  for (let i = 0; i < arr.length; i++) {
+    sum += arr[i]
+    if (i >= n) sum -= arr[i - n]
+    out.push(i >= n - 1 ? sum / n : null)
+  }
+  return out
+}
+
+function ema(arr, n) {
+  const out = []
+  let prev = null
+  const k = 2 / (n + 1)
+  for (let i = 0; i < arr.length; i++) {
+    prev = prev == null ? arr[i] : arr[i] * k + prev * (1 - k)
+    out.push(prev)
+  }
+  return out
+}
+
+export function computeIndicators(kl) {
+  const closes = kl.map(k => k.close)
+  const highs = kl.map(k => k.high)
+  const lows = kl.map(k => k.low)
+  const vols = kl.map(k => k.volume)
+  const out = { ma: {}, boll: {}, macd: {}, kdj: {}, rsi: {}, volRatio: [] }
+  ;[5, 10, 20, 60, 120, 250].forEach(n => { out.ma[n] = ma(closes, n) })
+  // BOLL(20)
+  const bollN = 20
+  const bollMid = ma(closes, bollN)
+  const bollUpper = [], bollLower = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i >= bollN - 1) {
+      const slice = closes.slice(i - bollN + 1, i + 1)
+      const mean = slice.reduce((s, v) => s + v, 0) / bollN
+      const sd = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / bollN)
+      bollUpper.push(mean + 2 * sd); bollLower.push(mean - 2 * sd)
+    } else { bollUpper.push(null); bollLower.push(null) }
+  }
+  out.boll = { upper: bollUpper, mid: bollMid, lower: bollLower }
+  // MACD(12,26,9)
+  const dif = ema(closes, 12).map((v, i) => v - ema(closes, 26)[i])
+  const dea = ema(dif, 9)
+  const bar = dif.map((v, i) => (v - dea[i]) * 2)
+  out.macd = { dif, dea, bar }
+  // KDJ(9)
+  const kArr = [], dArr = [], jArr = []
+  let kk = 50, dd = 50
+  for (let i = 0; i < closes.length; i++) {
+    const n9 = highs.slice(Math.max(0, i - 8), i + 1)
+    const hh = Math.max(...n9), ll = Math.min(...lows.slice(Math.max(0, i - 8), i + 1))
+    const rsv = hh > ll ? (closes[i] - ll) / (hh - ll) * 100 : 50
+    kk = 2 / 3 * kk + 1 / 3 * rsv
+    dd = 2 / 3 * dd + 1 / 3 * kk
+    kArr.push(kk); dArr.push(dd); jArr.push(3 * kk - 2 * dd)
+  }
+  out.kdj = { k: kArr, d: dArr, j: jArr }
+  // RSI(6/14)
+  const rsi = (n) => {
+    const arr = []
+    let gain = 0, loss = 0
+    for (let i = 0; i < closes.length; i++) {
+      if (i === 0) { arr.push(null); continue }
+      const chg = closes[i] - closes[i - 1]
+      if (i <= n) {
+        gain += Math.max(chg, 0); loss += Math.max(-chg, 0)
+        if (i === n) arr.push(loss === 0 ? 100 : 100 - 100 / (1 + gain / loss))
+        else arr.push(null)
+      } else {
+        gain = (gain * (n - 1) + Math.max(chg, 0)) / n
+        loss = (loss * (n - 1) + Math.max(-chg, 0)) / n
+        arr.push(loss === 0 ? 100 : 100 - 100 / (1 + gain / loss))
+      }
+    }
+    return arr
+  }
+  out.rsi = { 6: rsi(6), 14: rsi(14) }
+  // 量比（当日量/5日均量）
+  for (let i = 0; i < vols.length; i++) {
+    if (i < 5) { out.volRatio.push(null); continue }
+    const avg5 = vols.slice(i - 5, i).reduce((s, v) => s + v, 0) / 5
+    out.volRatio.push(avg5 > 0 ? vols[i] / avg5 : 1)
+  }
+  return out
+}
+
+export function computeKlineAna(kl, ind) {
+  if (!kl || kl.length < 30 || !ind) return null
+  const last = kl[kl.length - 1]
+  const closes = kl.map(k => k.close)
+  const signals = []
+  const chg20 = (last.close / closes[Math.max(0, closes.length - 21)] - 1) * 100
+  const chg5 = (last.close / closes[Math.max(0, closes.length - 6)] - 1) * 100
+  const ma5 = ind.ma[5]?.slice(-1)[0], ma10 = ind.ma[10]?.slice(-1)[0], ma20 = ind.ma[20]?.slice(-1)[0], ma60 = ind.ma[60]?.slice(-1)[0]
+  const dif = ind.macd?.dif?.slice(-1)[0], bar = ind.macd?.bar?.slice(-1)[0]
+  const rsi14 = ind.rsi?.[14]?.slice(-1)[0]
+  const vr = ind.volRatio?.slice(-1)[0] ?? 1
+  if (chg20 > 0 && chg5 > 0 && ma5 > ma20 && last.close > ma20) signals.push('sig_trend')
+  if (ma5 > ma10 && ma10 > ma20) signals.push('sig_maBull')
+  if (dif != null && dif > 0 && bar != null && bar > 0) signals.push('sig_breakH')
+  if (rsi14 != null && rsi14 < 30) signals.push('sig_volDry')
+  if (vr > 1.5) signals.push('sig_breakH')
+  if (rsi14 != null && rsi14 > 60) signals.push('sig_kdj')
+  // 支撑/阻力：近20日低点/高点
+  const h20 = Math.max(...kl.slice(-20).map(k => k.high))
+  const l20 = Math.min(...kl.slice(-20).map(k => k.low))
+  return { signals: [...new Set(signals)], support: +l20.toFixed(2), resistance: +h20.toFixed(2), chg_20d: +chg20.toFixed(2), tone: chg20 > 0 ? 'bull' : 'bear' }
+}
+
+export function computePaict(kl) {
+  if (!kl || kl.length < 30) return null
+  const last = kl[kl.length - 1]
+  const h20 = Math.max(...kl.slice(-20).map(k => k.high))
+  const l20 = Math.min(...kl.slice(-20).map(k => k.low))
+  const range = h20 - l20 || 1
+  const fib382 = l20 + range * 0.382
+  const fib618 = l20 + range * 0.618
+  const supports = [l20, l20 + range * 0.236].filter(v => v < last.close).sort((a, b) => b - a)
+  const resistances = [h20, l20 + range * 0.786].filter(v => v > last.close).sort((a, b) => a - b)
+  return { levels: [{ type: 'support', price: +supports[0]?.toFixed(2) }, { type: 'resistance', price: +resistances[0]?.toFixed(2) }].filter(x => x.price), supports: supports.map(v => +v.toFixed(2)), resistances: resistances.map(v => +v.toFixed(2)), fib382: +fib382.toFixed(2), fib618: +fib618.toFixed(2), structureText: last.close > fib618 ? '上涨结构' : last.close > fib382 ? '震荡结构' : '下跌结构' }
 }
 
 // ============ 回测 ============
