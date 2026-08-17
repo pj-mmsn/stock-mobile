@@ -404,12 +404,46 @@
 
             <!-- 🧠 麦唛少年策略说明 -->
             <div class="mbm-block">
-              <div class="mbm-title">🧠 麦唛少年 · 机器学习策略</div>
-              <div class="mbm-card"><b>策略原理</b>：LightGBM + LambdaRank 排序模型——从 46.8 万条历史回放样本中学习「什么样的票次日更容易涨」，输出全市场排序分。三档模式（超短/波段/长线）各训一个模型。</div>
-              <div class="mbm-card"><b>特征（纯K线可推导）</b>：量价关系 · 波动率 · 动量 · 位置分位 · 均线偏离 · 换手活跃度 · 连板/涨停基因 · 昨日量比</div>
-              <div class="mbm-card"><b>标签与训练</b>：标签 = 次日开盘买入持有 N 日收益（T+1 合规：买入后第 2 交易日收盘；涨停买不进/停牌剔除）。回放引擎逐日滚动生成样本，每日实盘存档继续积累。</div>
+              <div class="mbm-title">🧠 麦唛少年 · ICIR 因子模型
+                <button class="aa-btn" @click="loadMbmPredict" style="font-size:10px">{{ mbmLoading ? '打分中...' : (mbmData ? '刷新' : '生成预测') }}</button>
+              </div>
+              <div v-if="mbmData" class="mbm-result">
+                <div class="mbm-stats">
+                  <span>全市场 <b>{{ mbmData.total }}</b> 只</span>
+                  <span>更新 <b>{{ mbmData.updated ? mbmData.updated.slice(11, 16) : '-' }}</b></span>
+                  <span v-if="mbmData.review" :class="mbmData.review.winrate >= 53 ? 'up' : 'down'">昨日验证 {{ mbmData.review.winrate }}% (n={{ mbmData.review.total }})</span>
+                </div>
+                <div class="mbm-sec-title">🎯 Q4 入选（60-80 分位 · 回测胜率 {{ mode === 'long' ? '57.6' : mode === 'short' ? '54.6' : '54.0' }}%）</div>
+                <div v-for="(x, i) in mbmQ4" :key="x.code" class="mbm-item" @click="openStock(x)">
+                  <span class="mbm-rank">{{ i + 1 }}</span>
+                  <span class="mbm-code">{{ x.code }}</span>
+                  <span class="mbm-name">{{ x.name || '' }}</span>
+                  <span class="mbm-score">{{ x.score }}</span>
+                  <span class="mbm-pct">{{ x.pct }}%</span>
+                </div>
+                <div v-if="mbmQ4.length >= 50" class="mbm-more" @click="mbmShowAll = !mbmShowAll">{{ mbmShowAll ? '收起' : '展开全部' }}</div>
+                <div v-if="mbmShowAll" class="mbm-all">
+                  <div v-for="(x, i) in mbmQ4.slice(50)" :key="x.code" class="mbm-item" @click="openStock(x)">
+                    <span class="mbm-rank">{{ 51 + i }}</span>
+                    <span class="mbm-code">{{ x.code }}</span>
+                    <span class="mbm-score">{{ x.score }}</span>
+                    <span class="mbm-pct">{{ x.pct }}%</span>
+                  </div>
+                </div>
+                <div class="mbm-sec-title warn">⚠️ Q1 回避（最弱 20% · 回测胜率仅 35%）</div>
+                <div class="mbm-q1">
+                  <span v-for="x in mbmQ1" :key="x.code" class="mbm-q1-chip" @click="openStock(x)">{{ x.code }}</span>
+                </div>
+                <details class="mbm-weights">
+                  <summary>🔬 因子权重（透明可解释）</summary>
+                  <div v-for="(w, k) in mbmData.weights" :key="k" class="mbm-w">
+                    <span>{{ k }}</span><span :class="w >= 0 ? 'up' : 'down'">{{ w >= 0 ? '+' : '' }}{{ w }}</span>
+                  </div>
+                </details>
+              </div>
+              <div class="mbm-card"><b>策略原理</b>：24 个纯 K 线因子的 ICIR 加权打分——权重每 45 个交易日按因子有效性滚动自适应。样本外回测：IC 0.033-0.048、Q4 入选胜率 54-58%（规则基线 48%）。</div>
               <div class="mbm-card"><b>上线门槛（不达标不上线）</b>：walk-forward 60 天回测胜率 ≥ 规则基线 +5pp 才切换；双轨并行 2 周对照；熔断：连续 5 天胜率 &lt;45% 自动切回规则策略。</div>
-              <div class="mbm-note">⚠️ 策略处于训练/验证期，预测结果仅供研究参考，不构成投资建议。</div>
+              <div class="mbm-note">⚠️ 策略处于验证期，预测结果仅供研究参考，不构成投资建议。</div>
             </div>
 
             <div v-if="eveningHist.length" class="plh-group">
@@ -1178,6 +1212,28 @@ function setStyle(k) {
 function sigToStyle(sig) {
   const s = styles.find(x => (x.sigs || []).includes(sig))
   if (s) styleKey.value = s.key
+}
+
+// 🧠 麦唛 ICIR 预测
+const mbmData = ref(null)
+const mbmLoading = ref(false)
+const mbmShowAll = ref(false)
+const mbmQ4 = computed(() => (mbmData.value?.q4 || []).map(x => {
+  const meta = (predData.value?._allItems || predData.value?.items || []).find(p => p.code === x.code)
+  return { ...x, name: meta?.name || '' }
+}))
+const mbmQ1 = computed(() => mbmData.value?.q1 || [])
+async function loadMbmPredict() {
+  if (mbmLoading.value) return
+  mbmLoading.value = true
+  try {
+    const r = await fetch(`${base}/api/mbm-predict?mode=${mode.value}`, { signal: AbortSignal.timeout(150000), cache: 'no-store' })
+    if (r.ok) {
+      const d = await r.json()
+      if (d.ok) mbmData.value = d
+    }
+  } catch { /* 静默失败，下次再试 */ }
+  mbmLoading.value = false
 }
 
 // 📜 历史记录
