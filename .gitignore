@@ -1,0 +1,9 @@
+node_modules/
+dist/
+backend/pred.db
+backend/pred.db-shm
+backend/pred.db-wal
+*.log
+.DS_Store
+d/hermes
+dist-v55-backup/
