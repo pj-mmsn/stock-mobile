@@ -2,6 +2,7 @@
 股票预测后端 v5 — 入场止损仓位 + 市场温度 + 关注优先
 """
 import json, time, sqlite3, threading, os, urllib.request, gzip
+import numpy as np
 from datetime import datetime, timezone, timedelta
 
 _CST = timezone(timedelta(hours=8))  # 北京时间（Render 服务器是 UTC，必须显式转）
@@ -2753,6 +2754,230 @@ def run_evening_review():
     except Exception as e:
         print(f"[EVENING ERROR] {e}")
 
+# ========== MBM 麦唛 ICIR 模型集成 ==========
+_MBM_STABLE = None
+_MBM_WEIGHTS_CACHE = {}
+
+def _mbm_stable_feats():
+    global _MBM_STABLE
+    if _MBM_STABLE is None:
+        try:
+            import json as _json_mod
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stable_feats.json'), encoding='utf-8') as f:
+                _MBM_STABLE = set(_json_mod.load(f))
+        except Exception:
+            _MBM_STABLE = set()
+    return _MBM_STABLE
+
+def mbm_score_market(mode='swing'):
+    """ICIR 打分全市场：返回 {'items': 全量排序, 'q4': 入选, 'q1': 回避, 'weights': 因子权重}"""
+    from collections import defaultdict as _dd
+    from scipy.stats import spearmanr
+    label = {'short': 'ret2_open', 'swing': 'ret3_open', 'long': 'ret5_open'}.get(mode, 'ret3_open')
+    stable = _mbm_stable_feats()
+    # 训练期样本 → 滚动 ICIR 权重
+    c = sqlite3.connect(DB)
+    rows = c.execute(
+        "SELECT date, feats, labels FROM mbm_samples WHERE mode=? AND date >= '2024-01-01'",
+        (mode,)).fetchall()
+    days = _dd(list)
+    feat_names = None
+    for date, feats_s, labels_s in rows:
+        try:
+            f = json.loads(feats_s); lab = json.loads(labels_s)
+        except Exception:
+            continue
+        if lab.get('untradable') or lab.get('gap_suspend'):
+            continue
+        ret = lab.get(label)
+        if ret is None:
+            continue
+        if feat_names is None:
+            feat_names = [k for k in f.keys() if k not in ('code', 'board', 'price') and k in stable
+                          and isinstance(f[k], (int, float)) and f[k] is not None]
+        vec = []
+        for k in feat_names:
+            v = f.get(k)
+            if v is None or v != v:
+                v = 0.0
+            vec.append(float(v))
+        days[date].append((vec, ret))
+    dates = sorted(days.keys())[-45:]
+    w = np.zeros(len(feat_names))
+    for j in range(len(feat_names)):
+        ics = []
+        for d in dates:
+            col = [vec[j] for vec, _ in days[d]]
+            y = [r for _, r in days[d]]
+            if len(col) < 20 or np.std(col) < 1e-9 or np.std(y) < 1e-9:
+                continue
+            ics.append(spearmanr(col, y).statistic)
+        if len(ics) >= 20:
+            mu, sd = np.mean(ics), np.std(ics)
+            w[j] = mu / sd if sd > 1e-9 else 0.0
+    # 全市场打分（截至昨收）
+    import mbm_replay as _mr
+    items = []
+    for secid, data in c.execute('SELECT secid, data FROM klines'):
+        try:
+            kl = _kline_decode(data)
+            if not kl or len(kl) < 60:
+                continue
+            f = _mr.compute_features(secid, kl, len(kl) - 1, mode)
+            if not f:
+                continue
+            vec = []
+            for k in feat_names:
+                v = f.get(k)
+                if v is None or v != v:
+                    v = 0.0
+                vec.append(float(v))
+            items.append({'secid': secid, 'code': secid.split('.')[1], 'vec': vec})
+        except Exception:
+            continue
+    c.close()
+    if not items:
+        return {'error': '无 K 线数据'}
+    X = np.array([x['vec'] for x in items], dtype=np.float32)
+    mu, sd = X.mean(0), X.std(0)
+    sd[sd < 1e-9] = 1.0
+    Z = (X - mu) / sd
+    scores = Z @ w
+    order = np.argsort(scores)
+    n = len(scores)
+    pct = np.empty(n)
+    for rank, idx in enumerate(order):
+        pct[idx] = rank / n * 100
+    out = []
+    for i, it in enumerate(items):
+        out.append({'secid': it['secid'], 'code': it['code'],
+                    'score': round(float(scores[i]), 4), 'pct': round(float(pct[i]), 1),
+                    'q': 1 + int(min(pct[i], 99.9) // 20)})
+    out.sort(key=lambda x: -x['score'])
+    return {'items': out, 'total': n,
+            'q4': [x for x in out if x['q'] == 4][:50],
+            'q1': [x for x in out if x['q'] == 1][:20],
+            'weights': {f: round(float(w[i]), 4) for i, f in enumerate(feat_names)},
+            'updated': now_cst().isoformat(), 'label': label}
+
+def run_mbm_forecast(mode=None):
+    """麦唛 ICIR 预测存档（19:30 与规则预测并行；type='mbm_'+mode）"""
+    if mode is None:
+        mode = get_user_mode()
+    r = mbm_score_market(mode)
+    if r.get('error'):
+        print(f"[MBM] {mode} 打分失败: {r['error']}")
+        return
+    date_str = now_cst().strftime('%Y-%m-%d')
+    forecast_save(date_str, 'mbm_' + mode, r)
+    print(f"[MBM] {date_str} {mode} 预测存档: {r['total']} 只 Q4={len(r['q4'])}")
+
+def mbm_evening_review():
+    """盘后验证麦唛预测（Q4 名单次日/第2日收益 → 命中率）"""
+    mode = get_user_mode()
+    label = {'short': 'ret2_open', 'swing': 'ret3_open', 'long': 'ret5_open'}.get(mode, 'ret3_open')
+    today = now_cst().strftime('%Y-%m-%d')
+    # 找最近一条 mbm 预测（昨天或更早）
+    c = sqlite3.connect(DB)
+    row = c.execute(
+        "SELECT date, data FROM forecast_history WHERE type=? AND date < ? ORDER BY date DESC LIMIT 1",
+        ('mbm_' + mode, today)).fetchone()
+    if not row:
+        print('[MBM-EVENING] 无历史预测可验证')
+        c.close()
+        return
+    pred_date, data_s = row
+    try:
+        pred = json.loads(data_s)
+    except Exception:
+        c.close()
+        return
+    q4 = pred.get('q4', [])
+    if not q4:
+        c.close()
+        return
+    klines = {}
+    for secid, raw in c.execute('SELECT secid, data FROM klines'):
+        try:
+            klines[secid] = _kline_decode(raw)
+        except Exception:
+            pass
+    c.close()
+    # 验证：预测日后第 2 个交易日收盘（T+1 合规）
+    hits = 0
+    rets = []
+    total = 0
+    for p in q4:
+        kl = klines.get(p['secid'])
+        if not kl or len(kl) < 2:
+            continue
+        idxs = [i for i, k in enumerate(kl) if k['t'] >= pred_date]
+        if len(idxs) < 2:
+            continue
+        i0 = idxs[0]
+        i1 = idxs[1] if len(idxs) > 1 else i0
+        b0 = kl[i0]['o']
+        if b0 <= 0 or (kl[i0]['o'] / kl[max(0, i0 - 1)]['c'] - 1) >= 0.098:
+            continue  # 涨停买不进
+        ret = (kl[i1]['c'] / b0 - 1) * 100
+        rets.append(ret)
+        if ret > 0:
+            hits += 1
+        total += 1
+    if not total:
+        print('[MBM-EVENING] 无可验证标的')
+        return
+    winrate = round(hits / total * 100)
+    avg = round(sum(rets) / total, 2)
+    review = {'winrate': winrate, 'avg_return': avg, 'total': total, 'up': hits,
+              'reviewed': pred_date, 'created': now_cst().isoformat(),
+              'summary': f"麦唛({mode}) Q4名单 {total} 只：命中率 {winrate}%（≥53% 达标：{'✅' if winrate >= 53 else '❌'}），平均收益 {avg}%"}
+    # 更新原预测存档 + 存 evening_mbm
+    c = sqlite3.connect(DB)
+    try:
+        pred['review'] = review
+        c.execute('REPLACE INTO forecast_history VALUES (?,?,?,?)',
+                  (pred_date, 'mbm_' + mode, time.time(), json.dumps(pred, ensure_ascii=False)))
+        c.execute('REPLACE INTO forecast_history VALUES (?,?,?,?)',
+                  (pred_date, 'mbm_review', time.time(), json.dumps(review, ensure_ascii=False)))
+        c.commit()
+    finally:
+        c.close()
+    print(f"[MBM-EVENING] {pred_date} 验证: 命中率{winrate}% 平均{avg}% (n={total})")
+
+@app.route('/api/mbm-predict')
+def api_mbm_predict():
+    """麦唛预测（GET）：最新存档优先，无则触发打分（21s）"""
+    mode = request.args.get('mode') or get_user_mode()
+    date_str = now_cst().strftime('%Y-%m-%d')
+    c = sqlite3.connect(DB)
+    row = c.execute("SELECT data FROM forecast_history WHERE type=? AND date=?",
+                    ('mbm_' + mode, date_str)).fetchone()
+    c.close()
+    if row:
+        d = json.loads(row[0])
+        return jsonify({'ok': True, 'cached': True, 'mode': mode, **d})
+    try:
+        r = mbm_score_market(mode)
+        if r.get('error'):
+            return jsonify({'ok': False, 'error': r['error']}), 500
+        forecast_save(date_str, 'mbm_' + mode, r)
+        return jsonify({'ok': True, 'cached': False, 'mode': mode, **r})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+
+@app.route('/api/mbm-review', methods=['POST'])
+def api_mbm_review():
+    """手动触发麦唛盘后验证（密钥）"""
+    body = request.get_json() or {}
+    if body.get('key') != os.environ.get('FORECAST_KEY', 'stock-mobile-2026'):
+        return jsonify({'error': 'forbidden'}), 403
+    try:
+        mbm_evening_review()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
 @app.route('/api/forecast/run', methods=['POST'])
 def api_forecast_run():
     """手动触发盘前预测或盘后总结（type=morning|evening；带密钥；SCF 同步执行——线程会被冻结）"""
@@ -4026,16 +4251,18 @@ def scanner_loop():
             now_dt = now_cst()
             today = now_dt.strftime('%Y-%m-%d')
             
-            # 19:30 主任务：盘后总结 + 明日预测（当日数据已齐）
+            # 19:30 主任务：盘后总结 + 明日预测（当日数据已齐）+ 麦唛 ICIR 预测
             if now_dt.hour == 19 and now_dt.minute >= 30 and last_forecast != today:
                 last_forecast = today
                 threading.Thread(target=run_evening_review, daemon=True).start()
                 threading.Thread(target=lambda: run_morning_forecast(strip_last=False, mode=get_user_mode()), daemon=True).start()
+                threading.Thread(target=lambda: run_mbm_forecast(mode=get_user_mode()), daemon=True).start()
                 threading.Thread(target=collect_profiles, daemon=True).start()  # 画像：当日分时特征入库
-            # 06:30 晨间兜底：重新生成明日预测
+            # 06:30 晨间兜底：重新生成明日预测 + 麦唛预测
             if now_dt.hour == 6 and now_dt.minute >= 30 and last_morning_extra != today:
                 last_morning_extra = today
                 threading.Thread(target=lambda: run_morning_forecast(strip_last=False, mode=get_user_mode()), daemon=True).start()
+                threading.Thread(target=lambda: run_mbm_forecast(mode=get_user_mode()), daemon=True).start()
 
             # quick 快扫（实时数据，只作过渡/备用）
             items, total = quick_scan(55, mode=get_user_mode())
