@@ -118,6 +118,35 @@
       <div class="pred-tabbar">
         <span v-for="t in predTabs" :key="t.key" :class="['pt', { on: predTab === t.key }]" @click="predTab = t.key; loadPredict()">{{ t.label }}</span>
       </div>
+      <div v-if="predTab === 'mbm'" class="mbm-page">
+        <div class="sec-title">🧠 麦唛少年 · 机器学习策略</div>
+        <div class="mbm-card">
+          <div class="mbm-title">策略原理</div>
+          <div class="mbm-desc">LightGBM + LambdaRank 排序模型——不靠拍脑袋规则，从 46.8 万条历史回放样本中学习「什么样的票次日更容易涨」，输出全市场排序分。三档模式（超短/波段/长线）各训一个模型。</div>
+        </div>
+        <div class="mbm-card">
+          <div class="mbm-title">特征（纯K线可推导）</div>
+          <div class="mbm-desc">量价关系 · 波动率 · 动量 · 位置分位 · 均线偏离 · 换手活跃度 · 连板/涨停基因 · 昨日量比</div>
+        </div>
+        <div class="mbm-card">
+          <div class="mbm-title">标签与训练</div>
+          <div class="mbm-desc">标签 = 次日开盘买入持有 N 日收益（涨停买不进/停牌剔除）。回放引擎逐日滚动生成样本，每日实盘存档继续积累，大亏样本 2x 权重。</div>
+        </div>
+        <div class="mbm-card">
+          <div class="mbm-title">上线门槛（不达标不上线）</div>
+          <div class="mbm-desc">walk-forward 30 天回测胜率 ≥ 规则基线 +5pp 才切换；上线后双轨并行 2 周对照；熔断：连续 5 天胜率 &lt;45% 自动切回规则策略。</div>
+        </div>
+        <div class="mbm-card">
+          <div class="mbm-title">📊 盘后验证统计</div>
+          <div v-if="!histLoading && mbmStats.total" class="mbm-stats">
+            <div class="phs-card"><b>{{ mbmStats.total }}</b><span>存档</span></div>
+            <div class="phs-card"><b>{{ mbmStats.win }}%</b><span>平均命中</span></div>
+            <div class="phs-card"><b>{{ mbmStats.avg }}%</b><span>平均收益</span></div>
+          </div>
+          <div v-else class="mbm-desc">{{ histLoading ? '统计中...' : '暂无盘后存档' }}</div>
+        </div>
+        <div class="mbm-note">⚠️ 策略处于训练/验证期，预测结果仅供研究参考，不构成投资建议。</div>
+      </div>
       <div v-if="predTab === 'history'" class="pl-hist">
         <div class="plh-title">📜 历史预测存档</div>
         <div v-if="!histLoading" class="plh-stats">
@@ -330,7 +359,7 @@ const overview = ref(null)
 // 预测
 const predTab = ref('list')
 const predTabs = [
-  { key: 'list', label: '明日预测' }, { key: 'history', label: '📜 历史' },
+  { key: 'list', label: '明日预测' }, { key: 'history', label: '📜 历史' }, { key: 'mbm', label: '🧠 麦唛' },
 ]
 const predItems = ref([])
 const predLoading = ref(false)
@@ -339,6 +368,14 @@ const histGroups = ref([])
 const histDay = ref(null)
 const histStats = ref({})
 const histLoading = ref(false)
+const mbmStats = computed(() => {
+  const eves = histGroups.value.flatMap(g => g.items).filter(r => r.type === 'evening' && r.winrate != null)
+  return {
+    total: histGroups.value.reduce((s, g) => s + g.items.length, 0),
+    win: eves.length ? Math.round(eves.reduce((s, r) => s + (r.winrate || 0), 0) / eves.length) : 0,
+    avg: eves.length ? (eves.reduce((s, r) => s + (r.avg_return || 0), 0) / eves.length).toFixed(2) : 0,
+  }
+})
 
 // 详情
 const detailTab = ref('kline')
@@ -446,7 +483,7 @@ async function loadOverview() {
 
 // ========== 预测 ==========
 async function loadPredict() {
-  if (predTab.value === 'history') { loadHistory(); return }
+  if (predTab.value === 'history' || predTab.value === 'mbm') { loadHistory(); return }
   predLoading.value = true
   const d = await api.getPredict(mode.value, false)
   predItems.value = (d && d.items) || []
