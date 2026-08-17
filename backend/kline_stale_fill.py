@@ -35,15 +35,17 @@ for b in range(0, len(stale), BATCH):
     with ThreadPoolExecutor(max_workers=6) as ex:
         futs = {ex.submit(ps._kline_incremental, s): s for s in batch}
         for f in as_completed(futs):
+            secid = futs[f]
             try:
                 kl = f.result()
                 if kl:
+                    ps.kline_set(secid, kl)  # 写回 SQLite + Redis
                     ok += 1
                 else:
                     fail += 1
             except Exception as e:
                 fail += 1
-                print(f'  {futs[f]}: {str(e)[:50]}')
+                print(f'  {secid}: {str(e)[:50]}')
     done = min(b + BATCH, len(stale))
     print(f'[STALE] {done}/{len(stale)} 成功{ok} 失败{fail} {time.time()-t0:.0f}s', flush=True)
     if b + BATCH < len(stale):

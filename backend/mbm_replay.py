@@ -19,6 +19,7 @@
   python mbm_replay.py --stride 2 --mode swing
 """
 import sys, os, json, time, argparse, sqlite3
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -66,11 +67,9 @@ def lbc_approx(kl, i):
 
 
 def compute_features(secid, kl, i, mode):
-    """第 i 天收盘后的特征快照（纯 K 线推导）"""
+    """第 i 天收盘后的特征快照（纯 K 线推导，全市场无门槛）"""
     kl_slice = kl[:i + 1]
-    sigs = ps.compute_kline_signals(kl_slice, strip_last=False, mode=mode)
-    if not sigs:
-        return None
+    sigs = ps.compute_kline_signals(kl_slice, strip_last=False, mode=mode) or {}
     levels = sigs.get('levels') or {}
     c0 = kl[i]['c']
     code = secid.split('.')[1]
@@ -118,6 +117,99 @@ def compute_features(secid, kl, i, mode):
         'rsi6': levels.get('rsi6'),
         'atr_pct': round(levels['atr14'] / c0 * 100, 2) if levels.get('atr14') and c0 else None,
     }
+    # ===== Alpha 独立因子（纯 K 线统计，不依赖规则信号——防规则自举） =====
+    closes = [x['c'] for x in kl[:i + 1]]
+    highs = [x['h'] for x in kl[:i + 1]]
+    lows = [x['l'] for x in kl[:i + 1]]
+    vols = [x['v'] for x in kl[:i + 1]]
+    n = len(closes)
+    def rchg(days):
+        return (c0 / closes[max(0, n - 1 - days)] - 1) * 100 if n > days else None
+    def rstd(days):
+        if n <= days:
+            return None
+        rets = [closes[j] / closes[j - 1] - 1 for j in range(max(1, n - days), n)]
+        return round(np.std(rets) * 100, 3) if rets else None
+    def rmax(days):
+        return max(highs[max(0, n - days):]) if n > 0 else None
+    def rmin(days):
+        return min(lows[max(0, n - days):]) if n > 0 else None
+    # 动量/反转
+    f['mom_1'] = round(rchg(1), 2) if rchg(1) is not None else None
+    f['mom_3'] = round(rchg(3), 2) if rchg(3) is not None else None
+    f['mom_5'] = round(rchg(5), 2) if rchg(5) is not None else None
+    f['mom_10'] = round(rchg(10), 2) if rchg(10) is not None else None
+    f['mom_20'] = round(rchg(20), 2) if rchg(20) is not None else None
+    # 波动率
+    f['vol_5'] = rstd(5)
+    f['vol_10'] = rstd(10)
+    f['vol_20'] = rstd(20)
+    # 位置分位（close 在 N 日高低区间的位置 0~1）
+    if n >= 20:
+        h20, l20 = rmax(20), rmin(20)
+        f['pos_20'] = round((c0 - l20) / (h20 - l20), 3) if h20 > l20 else 0.5
+    else:
+        f['pos_20'] = None
+    if n >= 60:
+        h60, l60 = rmax(60), rmin(60)
+        f['pos_60'] = round((c0 - l60) / (h60 - l60), 3) if h60 > l60 else 0.5
+    else:
+        f['pos_60'] = None
+    # 距 N 日高/低（负值=在区间内）
+    if n >= 20:
+        f['dist_high20'] = round((c0 / rmax(20) - 1) * 100, 2)
+        f['dist_low20'] = round((c0 / rmin(20) - 1) * 100, 2)
+    else:
+        f['dist_high20'] = f['dist_low20'] = None
+    # 均线距离（偏离度 %）
+    if levels.get('ma20'):
+        f['ma_dist20'] = round((c0 / levels['ma20'] - 1) * 100, 2)
+    if levels.get('ma60'):
+        f['ma_dist60'] = round((c0 / levels['ma60'] - 1) * 100, 2)
+    if levels.get('ma10') and levels.get('ma20'):
+        f['ma10_20'] = round((levels['ma10'] / levels['ma20'] - 1) * 100, 2)
+    # 量能比（近5日均量 / 前20日均量——放量/缩量）
+    if n >= 25:
+        v5 = sum(vols[-5:]) / 5
+        v20 = sum(vols[-20:]) / 20
+        f['vol_ratio_5_20'] = round(v5 / v20, 3) if v20 > 0 else None
+    else:
+        f['vol_ratio_5_20'] = None
+    # 量价相关（近20日价格变动与量变动的方向一致性）
+    if n >= 20:
+        dp = [closes[j] / closes[j - 1] - 1 for j in range(n - 19, n)]
+        dv = [vols[j] / vols[j - 1] - 1 for j in range(n - 19, n)]
+        mu_p, mu_v = np.mean(dp), np.mean(dv)
+        cov = np.mean([(a - mu_p) * (b - mu_v) for a, b in zip(dp, dv)])
+        sp, sv = np.std(dp), np.std(dv)
+        f['pv_corr'] = round(cov / (sp * sv), 3) if sp > 0 and sv > 0 else 0.0
+    else:
+        f['pv_corr'] = None
+    # 上涨占比（近10日收涨比例）
+    if n >= 11:
+        ups = sum(1 for j in range(n - 10, n) if closes[j] > closes[j - 1])
+        f['up_ratio_10'] = round(ups / 10, 2)
+    else:
+        f['up_ratio_10'] = None
+    # 振幅（近5日平均振幅 %）
+    if n >= 5:
+        amps = [(highs[j] - lows[j]) / closes[j] * 100 for j in range(n - 5, n)]
+        f['amp_5'] = round(np.mean(amps), 2)
+    else:
+        f['amp_5'] = None
+    # 跳空（今日开盘相对昨收 %）
+    f['gap_1d'] = round((kl[i]['o'] / kl[i - 1]['c'] - 1) * 100, 2) if i >= 1 else None
+    # 涨停基因（近10日涨停次数）
+    if n >= 10:
+        lim = limit_pct(board)
+        f['zt_count_10'] = sum(1 for j in range(max(1, n - 10), n)
+                               if kl[j]['c'] / kl[j - 1]['c'] - 1 >= lim - 0.005)
+    else:
+        f['zt_count_10'] = 0
+    # numpy 类型转原生（json.dumps 不认 np.float64）
+    for k, v in list(f.items()):
+        if isinstance(v, (np.floating, np.integer)):
+            f[k] = float(v)
     return f
 
 
@@ -147,11 +239,15 @@ def compute_labels(kl, i, f, mode):
 
     if b0 > 0:
         out['ret1_open'] = round((kl[i + 1]['c'] / b0 - 1) * 100, 2)
+        if i + 2 < len(kl):
+            # T+1 合规：次日开盘买，第 2 个交易日收盘卖（i+2）
+            out['ret2_open'] = round((kl[i + 2]['c'] / b0 - 1) * 100, 2)
         if i + 3 < len(kl):
             out['ret3_open'] = round((kl[i + 3]['c'] / b0 - 1) * 100, 2)
         if i + 5 < len(kl):
             out['ret5_open'] = round((kl[i + 5]['c'] / b0 - 1) * 100, 2)
         out['up1'] = 1 if out['ret1_open'] > 0 else 0
+        out['up2'] = 1 if out.get('ret2_open', 0) > 0 else 0
         out['up3'] = 1 if out.get('ret3_open', 0) > 0 else 0
     return out
 
@@ -168,12 +264,14 @@ def _read_klines(secid):
         return None
 
 
-def replay_one(secid, kl, mode, stride):
+def replay_one(secid, kl, mode, stride, since=None):
     rows = []
     n = len(kl) if kl else 0
     if n < 35:
         return rows
     for i in range(29, n - 5, stride):
+        if since and kl[i]['t'] < since:
+            continue
         try:
             f = compute_features(secid, kl, i, mode)
             if not f:
@@ -201,6 +299,7 @@ def main():
     ap.add_argument('--mode', default='swing', choices=['short', 'swing', 'long'])
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--force', action='store_true', help='忽略已存在样本强制重算')
+    ap.add_argument('--since', default=None, help='只重算 t >= 该日期(YYYY-MM-DD)的样本（日期增量）')
     args = ap.parse_args()
 
     init_mbm_table()
@@ -211,18 +310,21 @@ def main():
     print(f'[MBM] 回放开始: {len(secids)} 只票, mode={args.mode}, stride={args.stride}')
 
     done = set()
-    if not args.force:
+    if not args.force and not args.since:
         with sqlite3.connect(DB) as c:
             done = set(r[0] for r in c.execute(
                 "SELECT DISTINCT code FROM mbm_samples WHERE mode=?", (args.mode,)))
+    elif args.since:
+        # 日期增量：所有票都重算，但只算 since 之后的样本
+        done = set()
     todo = [s for s in secids if s.split('.')[1] not in done]
-    print(f'[MBM] 已存在 {len(done)} 只，本次计算 {len(todo)} 只')
+    print(f'[MBM] 已存在 {len(done)} 只，本次计算 {len(todo)} 只' + (f'（日期增量 >= {args.since}）' if args.since else ''))
 
     t0 = time.time()
     total_rows = 0
     with sqlite3.connect(DB, timeout=60) as c:
         with ThreadPoolExecutor(max_workers=args.workers) as ex:
-            futures = {ex.submit(replay_one, s, _read_klines(s), args.mode, args.stride): s for s in todo}
+            futures = {ex.submit(replay_one, s, _read_klines(s), args.mode, args.stride, args.since): s for s in todo}
             for k, f in enumerate(as_completed(futures)):
                 rows = f.result()
                 if rows:
