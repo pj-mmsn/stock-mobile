@@ -1,0 +1,1149 @@
+st.value === "backtest" ? (g(
+  ),
+   b("div",
+     Z5,
+     [r("div",
+         tC,
+         [r("span",
+             { class: M({ on: Dl.value === "strat" }
+            ),
+             onClick: o[73
+            ] || (o[73
+              ] = (h
+              ) => Dl.value = "strat"
+            ) },
+             "📊 策略回测",
+             2
+          ),
+           r("span",
+             { class: M({ on: Dl.value === "sim" }
+            ),
+             onClick: o[74
+            ] || (o[74
+              ] = (h
+              ) => Dl.value = "sim"
+            ) },
+             "🧪 个股模拟",
+             2
+          )
+        ]
+      ),
+       Dl.value === "strat" ? (g(
+        ),
+         b(J,
+           { key: 0 },
+           [r("div",
+               eC,
+               [Vt.value && !Vt.value.error ? (g(
+                  ),
+                   b("div",
+                     sC,
+                     [r("div",
+                         { class: M(["btv-badge",
+                             Vt.value.total > 0 ? Vt.value.winRate >= 50 ? "good" : "bad" : "none"
+                          ]
+                        ) },
+                         v(Vt.value.total > 0 ? Vt.value.winRate >= 50 ? "✅ 策略有效" : "⚠️ 低于随机" : "📭 无信号"
+                        ),
+                         3
+                      ),
+                       r("div",
+                         iC,
+                         [K("样本 " + v(Vt.value.stockCount || ts.value
+                            ) + "只 · " + v(Vt.value.total
+                            ) + "个信号 · " + v((zt = $i.find((h
+                                  ) => h.key === je.value
+                                )
+                              ) == null ? void 0 : zt.name
+                            ) + " ",
+                             1
+                          ),
+                           (le = Vt.value.daily
+                          ) != null && le.length ? (g(
+                            ),
+                             b("button",
+                               { key: 0,
+                               class: "aa-btn",
+                               onClick: Hg,
+                               style: { "font-size": "10px",
+                               "margin-left": "8px" } },
+                               "📥 导出"
+                            )
+                          ) : E("",
+                             true
+                          )
+                        ]
+                      )
+                    ]
+                  )
+                ) : E("",
+                   true
+                ),
+                 r("div",
+                   nC,
+                   [Xl.value ? (g(
+                      ),
+                       b("span",
+                         lC,
+                         "🟢 后端已连接"
+                      )
+                    ) : (g(
+                      ),
+                       b("span",
+                         oC,
+                         "⚫ 浏览器模式"
+                      )
+                    ),
+                     r("div",
+                       aC,
+                       [o[176
+                        ] || (o[176
+                          ] = r("label",
+                             null,
+                             "回测天数",
+                             -1
+                          )
+                        ),
+                         de(r("input",
+                             { class: "aa-input",
+                             "onUpdate:modelValue": o[75
+                            ] || (o[75
+                              ] = (h
+                              ) => Jl.value = h
+                            ),
+                             type: "number",
+                             min: "5",
+                             max: "250" },
+                             null,
+                             512
+                          ),
+                           [[Ne,
+                               Jl.value
+                            ]
+                          ]
+                        )
+                      ]
+                    ),
+                     r("div",
+                       rC,
+                       [o[177
+                        ] || (o[177
+                          ] = r("label",
+                             null,
+                             "样本股数",
+                             -1
+                          )
+                        ),
+                         de(r("input",
+                             { class: "aa-input",
+                             "onUpdate:modelValue": o[76
+                            ] || (o[76
+                              ] = (h
+                              ) => ts.value = h
+                            ),
+                             type: "number",
+                             min: "20",
+                             max: "500" },
+                             null,
+                             512
+                          ),
+                           [[Ne,
+                               ts.value
+                            ]
+                          ]
+                        )
+                      ]
+                    ),
+                     de(r("select",
+                         { class: "aa-sel",
+                         "onUpdate:modelValue": o[77
+                        ] || (o[77
+                          ] = (h
+                          ) => je.value = h
+                        ) },
+                         [(g(true
+                            ),
+                             b(J,
+                               null,
+                               vt($i,
+                                 (h
+                                ) => (g(
+                                  ),
+                                   b("option",
+                                     { key: h.key,
+                                     value: h.key },
+                                     v(h.icon
+                                    ) + " " + v(h.name
+                                    ),
+                                     9,
+                                     cC
+                                  )
+                                )
+                              ),
+                               128
+                            )
+                          ),
+                           o[178
+                          ] || (o[178
+                            ] = r("option",
+                               { value: "combo" },
+                               "🔀 策略组合",
+                               -1
+                            )
+                          ),
+                           o[179
+                          ] || (o[179
+                            ] = r("option",
+                               { value: "custom" },
+                               "⚡ 自定义",
+                               -1
+                            )
+                          ),
+                           o[180
+                          ] || (o[180
+                            ] = r("option",
+                               { value: "compare" },
+                               "📊 多策略对比",
+                               -1
+                            )
+                          )
+                        ],
+                         512
+                      ),
+                       [[fl,
+                           je.value
+                        ]
+                      ]
+                    ),
+                     r("button",
+                       { class: "aa-btn bt-go",
+                       onClick: Bg,
+                       disabled: vs.value },
+                       v(vs.value ? "⏳ " + Me.value : "▶ 开始回测"
+                      ),
+                       9,
+                       uC
+                    )
+                  ]
+                )
+              ]
+            ),
+             je.value === "combo" ? (g(
+              ),
+               b("div",
+                 hC,
+                 [o[181
+                  ] || (o[181
+                    ] = r("div",
+                       { class: "btf-title" },
+                       [K("🔀 选2-3个互补策略 AND 组合 "
+                        ),
+                         r("span",
+                           { class: "sec-sub" },
+                           "股票必须同时满足所有选中策略"
+                        )
+                      ],
+                       -1
+                    )
+                  ),
+                   r("div",
+                     dC,
+                     [(g(true
+                        ),
+                         b(J,
+                           null,
+                           vt($i,
+                             (h
+                            ) => (g(
+                              ),
+                               b("div",
+                                 { class: "btf-item",
+                                 key: h.key },
+                                 [r("label",
+                                     fC,
+                                     [de(r("input",
+                                           { type: "checkbox",
+                                           value: h.key,
+                                           "onUpdate:modelValue": o[78
+                                          ] || (o[78
+                                            ] = (q
+                                            ) => Cn.value = q
+                                          ) },
+                                           null,
+                                           8,
+                                           vC
+                                        ),
+                                         [[Af,
+                                             Cn.value
+                                          ]
+                                        ]
+                                      ),
+                                       K(v(h.icon
+                                        ) + " " + v(h.name
+                                        ),
+                                         1
+                                      )
+                                    ]
+                                  )
+                                ]
+                              )
+                            )
+                          ),
+                           128
+                        )
+                      )
+                    ]
+                  ),
+                   r("div",
+                     pC,
+                     [r("button",
+                         { class: "aa-btn",
+                         onClick: o[79
+                        ] || (o[79
+                          ] = (h
+                          ) => Cn.value = ["canslim",
+                             "vcp"
+                          ]
+                        ),
+                         style: { "font-size": "10px" } },
+                         "趋势+突破"
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[80
+                        ] || (o[80
+                          ] = (h
+                          ) => Cn.value = ["davis",
+                             "stage2"
+                          ]
+                        ),
+                         style: { "font-size": "10px" } },
+                         "价值+趋势"
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[81
+                        ] || (o[81
+                          ] = (h
+                          ) => Cn.value = ["vcp",
+                             "wyckoff"
+                          ]
+                        ),
+                         style: { "font-size": "10px" } },
+                         "量价共振"
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             je.value === "custom" ? (g(
+              ),
+               b("div",
+                 mC,
+                 [o[183
+                  ] || (o[183
+                    ] = r("div",
+                       { class: "btf-title" },
+                       [K("⚡ 自定义策略因子 "
+                        ),
+                         r("span",
+                           { class: "sec-sub" },
+                           "勾选+调权重"
+                        )
+                      ],
+                       -1
+                    )
+                  ),
+                   r("div",
+                     gC,
+                     [(g(true
+                        ),
+                         b(J,
+                           null,
+                           vt(al,
+                             (h
+                            ) => (g(
+                              ),
+                               b("div",
+                                 { class: "btf-item",
+                                 key: h.key },
+                                 [r("label",
+                                     bC,
+                                     [de(r("input",
+                                           { type: "checkbox",
+                                           "onUpdate:modelValue": (q
+                                          ) => h.on = q },
+                                           null,
+                                           8,
+                                           yC
+                                        ),
+                                         [[Af,
+                                             h.on
+                                          ]
+                                        ]
+                                      ),
+                                       K(v(h.label
+                                        ),
+                                         1
+                                      )
+                                    ]
+                                  ),
+                                   de(r("input",
+                                       { class: "aa-input",
+                                       "onUpdate:modelValue": (q
+                                      ) => h.weight = q,
+                                       type: "number",
+                                       min: "0",
+                                       max: "5",
+                                       step: "0.5",
+                                       disabled: !h.on,
+                                       style: { width: "40px" } },
+                                       null,
+                                       8,
+                                       _C
+                                    ),
+                                     [[Ne,
+                                         h.weight,
+                                         void 0,
+                                         { number: true }
+                                      ]
+                                    ]
+                                  )
+                                ]
+                              )
+                            )
+                          ),
+                           128
+                        )
+                      )
+                    ]
+                  ),
+                   r("div",
+                     wC,
+                     [r("button",
+                         { class: "aa-btn",
+                         onClick: o[82
+                        ] || (o[82
+                          ] = (h
+                          ) => ic("aggressive"
+                          )
+                        ),
+                         style: { "font-size": "10px" } },
+                         "🔥 激进"
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[83
+                        ] || (o[83
+                          ] = (h
+                          ) => ic("balanced"
+                          )
+                        ),
+                         style: { "font-size": "10px" } },
+                         "⚖️ 均衡"
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[84
+                        ] || (o[84
+                          ] = (h
+                          ) => ic("conservative"
+                          )
+                        ),
+                         style: { "font-size": "10px" } },
+                         "🛡 保守"
+                      ),
+                       o[182
+                      ] || (o[182
+                        ] = r("span",
+                           { class: "sec-sub",
+                           style: { "margin-left": "8px" } },
+                           "阈值≥",
+                           -1
+                        )
+                      ),
+                       de(r("input",
+                           { class: "aa-input",
+                           "onUpdate:modelValue": o[85
+                          ] || (o[85
+                            ] = (h
+                            ) => xn.value = h
+                          ),
+                           type: "number",
+                           min: "2",
+                           max: "15",
+                           style: { width: "40px" } },
+                           null,
+                           512
+                        ),
+                         [[Ne,
+                             xn.value,
+                             void 0,
+                             { number: true }
+                          ]
+                        ]
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             Vt.value && Vt.value.error ? (g(
+              ),
+               b("div",
+                 kC,
+                 v(Vt.value.error
+                ),
+                 1
+              )
+            ) : E("",
+               true
+            ),
+             Vt.value && !Vt.value.error ? (g(
+              ),
+               b(J,
+                 { key: 3 },
+                 [r("div",
+                     SC,
+                     [r("div",
+                         { class: M(["bts-score",
+                             Vt.value.total > 0 ? Vt.value.winRate >= 50 ? "good" : "bad" : "none"
+                          ]
+                        ) },
+                         [r("div",
+                             xC,
+                             v(Vt.value.total > 0 ? Vt.value.winRate + "%" : "--"
+                            ),
+                             1
+                          ),
+                           o[184
+                          ] || (o[184
+                            ] = r("div",
+                               { class: "btss-label" },
+                               "胜率",
+                               -1
+                            )
+                          )
+                        ],
+                         2
+                      ),
+                       r("div",
+                         CC,
+                         [r("div",
+                             MC,
+                             [r("span",
+                                 { class: M(Vt.value.avgReturn >= 0 ? "up" : "down"
+                                ) },
+                                 v((Vt.value.avgReturn > 0 ? "+" : ""
+                                  ) + Vt.value.avgReturn
+                                ) + "%",
+                                 3
+                              ),
+                               o[185
+                              ] || (o[185
+                                ] = r("label",
+                                   null,
+                                   "均收益",
+                                   -1
+                                )
+                              )
+                            ]
+                          ),
+                           r("div",
+                             $C,
+                             [r("span",
+                                 null,
+                                 v(Vt.value.total
+                                ),
+                                 1
+                              ),
+                               o[186
+                              ] || (o[186
+                                ] = r("label",
+                                   null,
+                                   "信号数",
+                                   -1
+                                )
+                              )
+                            ]
+                          ),
+                           r("div",
+                             TC,
+                             [r("span",
+                                 null,
+                                 v(Vt.value.stockCount || ts.value
+                                ),
+                                 1
+                              ),
+                               o[187
+                              ] || (o[187
+                                ] = r("label",
+                                   null,
+                                   "样本",
+                                   -1
+                                )
+                              )
+                            ]
+                          )
+                        ]
+                      ),
+                       Vt.value.total > 0 ? (g(
+                        ),
+                         b("div",
+                           EC,
+                           [K(v(Vt.value.winRate >= 60 ? "🟢 策略稳定盈利" : Vt.value.winRate >= 45 ? "🟡 接近随机，需优化" : "🔴 策略可能无效"
+                              ) + " ",
+                               1
+                            ),
+                             r("span",
+                               RC,
+                               "回测期间累计 " + v((Vt.value.avgReturn * Vt.value.total
+                                ).toFixed(1
+                                )
+                              ) + "% 收益",
+                               1
+                            )
+                          ]
+                        )
+                      ) : E("",
+                         true
+                      )
+                    ]
+                  ),
+                   (St = Vt.value.daily
+                  ) != null && St.length ? (g(
+                    ),
+                     b("div",
+                       zC,
+                       [o[188
+                        ] || (o[188
+                          ] = r("div",
+                             { class: "btb-label" },
+                             "📈 每日胜率走势",
+                             -1
+                          )
+                        ),
+                         r("div",
+                           LC,
+                           [(g(true
+                              ),
+                               b(J,
+                                 null,
+                                 vt(Vt.value.daily,
+                                   (h
+                                  ) => (g(
+                                    ),
+                                     b("div",
+                                       { class: "btb-bar-wrap",
+                                       key: h.date },
+                                       [r("div",
+                                           { class: M(["btb-bar",
+                                               h.winRate >= 50 ? "up" : "down"
+                                            ]
+                                          ),
+                                           style: Pe({ height: Math.max(h.winRate / 2,
+                                               2
+                                            ) + "%" }
+                                          ) },
+                                           null,
+                                           6
+                                        ),
+                                         r("div",
+                                           DC,
+                                           v(h.date.slice(5
+                                            )
+                                          ),
+                                           1
+                                        ),
+                                         r("div",
+                                           PC,
+                                           v(h.winRate
+                                          ) + "%",
+                                           1
+                                        )
+                                      ]
+                                    )
+                                  )
+                                ),
+                                 128
+                              )
+                            )
+                          ]
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   ($e = Vt.value.daily
+                  ) != null && $e.length ? (g(
+                    ),
+                     b("div",
+                       OC,
+                       [o[190
+                        ] || (o[190
+                          ] = r("div",
+                             { class: "btl-header" },
+                             [r("span",
+                                 null,
+                                 "日期"
+                              ),
+                               r("span",
+                                 null,
+                                 "信号"
+                              ),
+                               r("span",
+                                 null,
+                                 "胜率"
+                              ),
+                               r("span",
+                                 null,
+                                 "均收益"
+                              )
+                            ],
+                             -1
+                          )
+                        ),
+                         (g(true
+                          ),
+                           b(J,
+                             null,
+                             vt(Vt.value.daily,
+                               (h
+                              ) => (g(
+                                ),
+                                 b("div",
+                                   { class: "btl-row",
+                                   key: h.date },
+                                   [r("div",
+                                       { class: "btlr-main",
+                                       onClick: (q
+                                      ) => h._open = !h._open },
+                                       [r("span",
+                                           null,
+                                           v(h.date.slice(5
+                                            )
+                                          ),
+                                           1
+                                        ),
+                                         r("span",
+                                           null,
+                                           v(h.signals
+                                          ),
+                                           1
+                                        ),
+                                         r("span",
+                                           { class: M(h.winRate >= 50 ? "up" : "down"
+                                          ) },
+                                           v(h.winRate
+                                          ) + "%",
+                                           3
+                                        ),
+                                         r("span",
+                                           { class: M(h.avgRet >= 0 ? "up" : "down"
+                                          ) },
+                                           v((h.avgRet > 0 ? "+" : ""
+                                            ) + h.avgRet
+                                          ) + "%",
+                                           3
+                                        ),
+                                         r("span",
+                                           NC,
+                                           v(h._open ? "▾" : "▸"
+                                          ),
+                                           1
+                                        )
+                                      ],
+                                       8,
+                                       AC
+                                    ),
+                                     h._open && h.picks ? (g(
+                                      ),
+                                       b("div",
+                                         IC,
+                                         [o[189
+                                          ] || (o[189
+                                            ] = r("div",
+                                               { class: "btld-head" },
+                                               [r("span",
+                                                   null,
+                                                   "股票"
+                                                ),
+                                                 r("span",
+                                                   null,
+                                                   "得分"
+                                                ),
+                                                 r("span",
+                                                   null,
+                                                   "收益"
+                                                )
+                                              ],
+                                               -1
+                                            )
+                                          ),
+                                           (g(true
+                                            ),
+                                             b(J,
+                                               null,
+                                               vt(h.picks,
+                                                 (q
+                                                ) => (g(
+                                                  ),
+                                                   b("div",
+                                                     { class: "btld-row",
+                                                     key: q.code },
+                                                     [r("span",
+                                                         null,
+                                                         [K(v(q.name
+                                                            ) + " ",
+                                                             1
+                                                          ),
+                                                           r("em",
+                                                             null,
+                                                             v(q.code
+                                                            ),
+                                                             1
+                                                          )
+                                                        ]
+                                                      ),
+                                                       r("span",
+                                                         null,
+                                                         v(q.score
+                                                        ),
+                                                         1
+                                                      ),
+                                                       r("span",
+                                                         { class: M(q.ret >= 0 ? "up" : "down"
+                                                        ) },
+                                                         v((q.ret > 0 ? "+" : ""
+                                                          ) + q.ret
+                                                        ) + "%",
+                                                         3
+                                                      )
+                                                    ]
+                                                  )
+                                                )
+                                              ),
+                                               128
+                                            )
+                                          )
+                                        ]
+                                      )
+                                    ) : E("",
+                                       true
+                                    )
+                                  ]
+                                )
+                              )
+                            ),
+                             128
+                          )
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  )
+                ],
+                 64
+              )
+            ) : E("",
+               true
+            ),
+             (pe = Vt.value
+            ) != null && pe.compare ? (g(
+              ),
+               b("div",
+                 FC,
+                 [r("div",
+                     VC,
+                     "📊 策略对比 · " + v(Vt.value.stockCount
+                    ) + " 样本",
+                     1
+                  ),
+                   r("div",
+                     BC,
+                     [(g(true
+                        ),
+                         b(J,
+                           null,
+                           vt(Vt.value.strategies,
+                             (h,
+                               q
+                            ) => {
+      var Ms,
+                             $s;
+      return g(
+                            ),
+                             b("div",
+                               { class: M(["btc-card",
+                                   { best: h === Fg.value }
+                                ]
+                              ),
+                               key: q },
+                               [r("div",
+                                   jC,
+                                   v(((Ms = $i.find((ps
+                                          ) => ps.key === q
+                                        )
+                                      ) == null ? void 0 : Ms.icon
+                                    ) || "📈"
+                                  ),
+                                   1
+                                ),
+                                 r("div",
+                                   WC,
+                                   v((($s = $i.find((ps
+                                          ) => ps.key === q
+                                        )
+                                      ) == null ? void 0 : $s.name
+                                    ) || q
+                                  ),
+                                   1
+                                ),
+                                 r("div",
+                                   HC,
+                                   [r("span",
+                                       { class: M(h.winRate >= 50 ? "up" : "down"
+                                      ) },
+                                       v(h.winRate
+                                      ) + "%",
+                                       3
+                                    ),
+                                     o[191
+                                    ] || (o[191
+                                      ] = r("span",
+                                         { class: "btcc-label" },
+                                         "胜率",
+                                         -1
+                                      )
+                                    )
+                                  ]
+                                ),
+                                 r("div",
+                                   KC,
+                                   [r("span",
+                                       { class: M(h.avgReturn >= 0 ? "up" : "down"
+                                      ) },
+                                       v((h.avgReturn > 0 ? "+" : ""
+                                        ) + h.avgReturn
+                                      ) + "%",
+                                       3
+                                    ),
+                                     o[192
+                                    ] || (o[192
+                                      ] = r("span",
+                                         { class: "btcc-label" },
+                                         "均收益",
+                                         -1
+                                      )
+                                    )
+                                  ]
+                                ),
+                                 r("div",
+                                   qC,
+                                   v(h.total
+                                  ) + " 信号",
+                                   1
+                                )
+                              ],
+                               2
+                            );
+    }
+                          ),
+                           128
+                        )
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             vs.value ? (g(
+              ),
+               b("div",
+                 UC,
+                 [o[193
+                  ] || (o[193
+                    ] = r("div",
+                       { class: "btl-spinner" },
+                       [r("span"
+                        ),
+                         r("span"
+                        ),
+                         r("span"
+                        )
+                      ],
+                       -1
+                    )
+                  ),
+                   r("div",
+                     JC,
+                     v(Me.value
+                    ),
+                     1
+                  ),
+                   r("div",
+                     XC,
+                     [r("i",
+                         { style: Pe({ width: Le.value + "%" }
+                        ) },
+                         null,
+                         4
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             !Vt.value && !vs.value ? (g(
+              ),
+               b("div",
+                 GC,
+                 [...o[194
+                  ] || (o[194
+                    ] = [r("div",
+                         { class: "bte-icon" },
+                         "🧪",
+                         -1
+                      ),
+                       r("div",
+                         { class: "bte-title" },
+                         "策略回测",
+                         -1
+                      ),
+                       r("div",
+                         { class: "bte-desc" },
+                         "用历史数据验证策略胜率，样本越大越准",
+                         -1
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             ka.value.length && !Vt.value ? (g(
+              ),
+               b("div",
+                 QC,
+                 [o[195
+                  ] || (o[195
+                    ] = r("div",
+                       { class: "btps-title" },
+                       "📋 历史回测",
+                       -1
+                    )
+                  ),
+                   (g(true
+                    ),
+                     b(J,
+                       null,
+                       vt(ka.value,
+                         (h,
+                           q
+                        ) => {
+      var Ms,
+                         $s;
+      return g(
+                        ),
+                         b("div",
+                           { class: "bth-item",
+                           key: q,
+                           onClick: (ps
+                          ) => {
+        Vt.value = h.result,
+                           Jl.value = h.days,
+                           ts.value = h.count,
+                           je.value = h.strategy;
+      } },
+                           [r("span",
+                               ZC,
+                               v((Ms = $i.find((ps
+                                    ) => ps.key === h.strategy
+                                  )
+                                ) == null ? void 0 : Ms.icon
+                              ) + " " + v(($s = $i.find((ps
+                                    ) => ps.key === h.strategy
+                                  )
+                                ) == null ? void 0 : $s.name
+                              ),
+                               1
+                            ),
+                             r("span",
+                               tM,
+                               v(h.time.slice(0,
+                                   10
+                                )
+                              ),
+                               1
+                            ),
+                             r("span",
+                               { class: M(h.result.winRate >= 50 ? "up" : "down"
+                              ) },
+                               v(h.result.winRate
+                              ) + "%",
+                               3
+                            ),
+                             r("button",
+                               { class: "bth-del",
+                               onClick: js((ps
+                                ) => {
+        ka.value.splice(q,
+                                   1
+                                ),
+                                 i("backtestHistory",
+                                   ka.value
+                                );
+      },
+                                 ["stop"
+                                ]
+                              ) },
+                               "×",
+                               8,
+                               eM
+                            )
+                          ],
+                           8,
+                           YC
+                        );
+    }
+                      ),
+                       128
+                    )
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            )
+          ],
+           64
+        )
+      ) : (g(
+        ),
+         su(tw,
+           { key: 1,
+           mode: ne.value },
+           null,
+           8,
+           ["mode"
+          ]
+        )
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ 

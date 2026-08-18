@@ -1,0 +1,2444 @@
+st.value === "predict" ? (g(
+  ),
+   b("div",
+     A3,
+     [r("div",
+         N3,
+         [r("span",
+             { class: M({ on: hi.value === "focus" }
+            ),
+             onClick: o[30
+            ] || (o[30
+              ] = (h
+              ) => hi.value = "focus"
+            ) },
+             "🎯 今日重点",
+             2
+          ),
+           r("span",
+             { class: M({ on: hi.value === "realtime" }
+            ),
+             onClick: o[31
+            ] || (o[31
+              ] = (h
+              ) => {
+      hi.value = "realtime",
+               _n(
+              );
+    }
+            ) },
+             "🔴 实时机会",
+             2
+          ),
+           r("span",
+             { class: M({ on: hi.value === "predict" }
+            ),
+             onClick: o[32
+            ] || (o[32
+              ] = (h
+              ) => hi.value = "predict"
+            ) },
+             "🔮 明日预测",
+             2
+          )
+        ]
+      ),
+       Hr.value ? (g(
+        ),
+         b("div",
+           { key: 0,
+           class: "net-tip",
+           onClick: o[33
+          ] || (o[33
+            ] = (h
+            ) => Hr.value = false
+          ) },
+           "⚠️ 后端响应偏慢——若开了翻墙请关闭（国内服务器绕路变慢），或点此关闭提示"
+        )
+      ) : E("",
+         true
+      ),
+       hi.value === "focus" ? (g(
+        ),
+         b("div",
+           I3,
+           [r("div",
+               F3,
+               [o[150
+                ] || (o[150
+                  ] = r("span",
+                     { class: "rt-hint" },
+                     "🎯 实时机会 + 明日预测信号合并打分，按机会强度排序 —— 今天最值得关注的 Top10",
+                     -1
+                  )
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "" }
+                    ]
+                  ),
+                   onClick: o[34
+                  ] || (o[34
+                    ] = (h
+                    ) => ze.value = ""
+                  ) },
+                   "RSI全部",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "os" }
+                    ]
+                  ),
+                   onClick: o[35
+                  ] || (o[35
+                    ] = (h
+                    ) => ze.value = "os"
+                  ) },
+                   "超卖<30",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "ob" }
+                    ]
+                  ),
+                   onClick: o[36
+                  ] || (o[36
+                    ] = (h
+                    ) => ze.value = "ob"
+                  ) },
+                   "超买>80",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "mid" }
+                    ]
+                  ),
+                   onClick: o[37
+                  ] || (o[37
+                    ] = (h
+                    ) => ze.value = "mid"
+                  ) },
+                   "中位",
+                   2
+                )
+              ]
+            ),
+             xh.value.length ? (g(
+              ),
+               b("div",
+                 V3,
+                 [(g(true
+                    ),
+                     b(J,
+                       null,
+                       vt(xh.value,
+                         (h,
+                           q
+                        ) => (g(
+                          ),
+                           b("div",
+                             { class: "rt-item",
+                             key: h.code,
+                             onClick: (Ms
+                            ) => Xn(h
+                            ) },
+                             [r("div",
+                                 j3,
+                                 [r("div",
+                                     W3,
+                                     [r("em",
+                                         H3,
+                                         v(q + 1
+                                        ),
+                                         1
+                                      ),
+                                       K(v(h.name
+                                        ) + " ",
+                                         1
+                                      ),
+                                       r("em",
+                                         null,
+                                         v(h.code
+                                        ),
+                                         1
+                                      ),
+                                       o[151
+                                      ] || (o[151
+                                        ] = K(
+                                        )
+                                      ),
+                                       r("span",
+                                         K3,
+                                         v(_a(h.board
+                                          )
+                                        ) + " " + v(en(h
+                                          )
+                                        ),
+                                         1
+                                      ),
+                                       o[152
+                                      ] || (o[152
+                                        ] = K(
+                                        )
+                                      ),
+                                       r("span",
+                                         { class: M(["rt-hz",
+                                             il(h
+                                            ) === "波段" ? "hz-m" : "hz-s"
+                                          ]
+                                        ) },
+                                         v(Sh(h
+                                          )
+                                        ),
+                                         3
+                                      )
+                                    ]
+                                  ),
+                                   r("div",
+                                     q3,
+                                     [h.sig_zt ? (g(
+                                        ),
+                                         b("span",
+                                           U3,
+                                           "🚀涨停"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_pump ? (g(
+                                        ),
+                                         b("span",
+                                           J3,
+                                           "📈拉升"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_vr ? (g(
+                                        ),
+                                         b("span",
+                                           X3,
+                                           "⚡量比" + v(Lt(h.vr,
+                                               1
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_turn ? (g(
+                                        ),
+                                         b("span",
+                                           G3,
+                                           "🔄换手" + v(Lt(h.turnover,
+                                               1
+                                            )
+                                          ) + "%",
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_flow ? (g(
+                                        ),
+                                         b("span",
+                                           Q3,
+                                           "💰主力" + v(ae(h.main_flow
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_super ? (g(
+                                        ),
+                                         b("span",
+                                           Y3,
+                                           "🃏超大" + v(ae(h.super_flow
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_reverse ? (g(
+                                        ),
+                                         b("span",
+                                           Z3,
+                                           "🔁反包"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_dump ? (g(
+                                        ),
+                                         b("span",
+                                           tx,
+                                           "⚠️出货"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.predScore ? (g(
+                                        ),
+                                         b("span",
+                                           ex,
+                                           "🔮" + v(h.predScore
+                                          ) + "分",
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       r("span",
+                                         sx,
+                                         "强度 " + v(h.strength
+                                        ),
+                                         1
+                                      )
+                                    ]
+                                  ),
+                                   h.entry || h.stop ? (g(
+                                    ),
+                                     b("div",
+                                       ix,
+                                       "📌 参考：入场 " + v(Lt(h.entry
+                                        )
+                                      ) + " · 止损 " + v(Lt(h.stop
+                                        )
+                                      ) + "（预测引擎）",
+                                       1
+                                    )
+                                  ) : E("",
+                                     true
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 nx,
+                                 [r("div",
+                                     { class: M(["rt-price",
+                                         Pt(h.change_pct
+                                        )
+                                      ]
+                                    ) },
+                                     v(Lt(h.price
+                                      )
+                                    ),
+                                     3
+                                  ),
+                                   r("div",
+                                     { class: M(["rt-chg",
+                                         Pt(h.change_pct
+                                        )
+                                      ]
+                                    ) },
+                                     v(h.change_pct > 0 ? "+" : ""
+                                    ) + v(Lt(h.change_pct,
+                                         2
+                                      )
+                                    ) + "%",
+                                     3
+                                  )
+                                ]
+                              )
+                            ],
+                             8,
+                             B3
+                          )
+                        )
+                      ),
+                       128
+                    )
+                  )
+                ]
+              )
+            ) : (g(
+              ),
+               b("div",
+                 lx,
+                 [ze.value && !Ri.value && !ds.value ? (g(
+                    ),
+                     b(J,
+                       { key: 0 },
+                       [K("RSI 筛选无结果：" + v(ze.value === "os" ? "RSI<30 超卖票在当前行情较少（普涨日动量偏高）" : ze.value === "ob" ? "RSI6>80 超买强势票" : "RSI 30-60 中位票"
+                          ) + "——可切换其他档",
+                           1
+                        )
+                      ],
+                       64
+                    )
+                  ) : (g(
+                    ),
+                     b(J,
+                       { key: 1 },
+                       [K(v(Ri.value || ds.value ? "加载中..." : "暂无数据 · 需要盘中数据（非交易时段仅预测信号）"
+                          ),
+                           1
+                        )
+                      ],
+                       64
+                    )
+                  )
+                ]
+              )
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       hi.value === "realtime" ? (g(
+        ),
+         b("div",
+           ox,
+           [r("div",
+               ax,
+               [r("span",
+                   { class: M(["rt-status",
+                       { on: yn.value }
+                    ]
+                  ) },
+                   v(yn.value ? "🟢 实时" : "🔴 离线"
+                  ),
+                   3
+                ),
+                 (B = Ce.value
+                ) != null && B.updated ? (g(
+                  ),
+                   b("span",
+                     rx,
+                     "更新 " + v(typeof Ce.value.updated == "string" ? Ce.value.updated.slice(11,
+                         16
+                      ) : "-"
+                    ) + " · 热区" + v(typeof ((Z = Ce.value
+                        ) == null ? void 0 : Z.hot_ts
+                      ) == "string" ? Ce.value.hot_ts.slice(11,
+                         16
+                      ) : "-"
+                    ) + " · 全市场" + v(typeof ((gt = Ce.value
+                        ) == null ? void 0 : gt.full_ts
+                      ) == "string" ? Ce.value.full_ts.slice(11,
+                         16
+                      ) : "-"
+                    ),
+                     1
+                  )
+                ) : E("",
+                   true
+                ),
+                 r("button",
+                   { class: "aa-btn",
+                   onClick: o[38
+                  ] || (o[38
+                    ] = (h
+                    ) => _n(true
+                    )
+                  ),
+                   disabled: Ri.value,
+                   style: { "font-size": "10px" } },
+                   v(Ri.value ? "刷新中..." : "🔄 刷新"
+                  ),
+                   9,
+                   cx
+                )
+              ]
+            ),
+             r("div",
+               { class: M(["rt-hint",
+                   { "rt-hint-off": ((wt = Ce.value
+                    ) == null ? void 0 : wt.is_trading
+                  ) === false }
+                ]
+              ) },
+               [Wl.value ? (g(
+                  ),
+                   b("span",
+                     ux,
+                     "⚠️ 数据源受限：海外服务器拉国内行情被限流。电脑跑本机后端（手机同WiFi访问）数据全正常；或换国内服务器部署彻底解决"
+                  )
+                ) : (lt = Ce.value
+                ) != null && lt.is_trading ? (g(
+                  ),
+                   b("span",
+                     hx,
+                     "🔴 盘中实时 · 每15秒自动刷新 · 数据截至 " + v((mt = Ce.value
+                      ) == null ? void 0 : mt.data_date
+                    ),
+                     1
+                  )
+                ) : (g(
+                  ),
+                   b("span",
+                     dx,
+                     "💤 非交易时段 · 数据截至 " + v((rt = Ce.value
+                      ) == null ? void 0 : rt.data_date
+                    ) + " 收盘（行情不再变化） · 每5分钟自动检查",
+                     1
+                  )
+                )
+              ],
+               2
+            ),
+             (kt = Ce.value
+            ) != null && kt.is_new_count ? (g(
+              ),
+               b("div",
+                 { key: 0,
+                 class: "rt-newbar",
+                 onClick: o[39
+                ] || (o[39
+                  ] = (h
+                  ) => _n(true
+                  )
+                ) },
+                 "🔔 本轮新发现 " + v(Ce.value.is_new_count
+                ) + " 只机会，点击刷新查看",
+                 1
+              )
+            ) : E("",
+               true
+            ),
+             (((Et = Ce.value
+                ) == null ? void 0 : Et.zt_new
+              ) || [
+              ]
+            ).length ? (g(
+              ),
+               b("div",
+                 fx,
+                 [r("div",
+                     { class: "rt-ztfold-head",
+                     onClick: o[40
+                    ] || (o[40
+                      ] = (h
+                      ) => va.value = !va.value
+                    ) },
+                     [r("span",
+                         null,
+                         [K("🚀 刚封板 " + v(((Rt = (Nt = Ce.value
+                                  ) == null ? void 0 : Nt.zt_new
+                                ) == null ? void 0 : Rt.length
+                              ) || 0
+                            ) + " 只 ",
+                             1
+                          ),
+                           o[153
+                          ] || (o[153
+                            ] = r("em",
+                               { class: "sec-sub" },
+                               "（打板玩法 · 已从主列表过滤）",
+                               -1
+                            )
+                          )
+                        ]
+                      ),
+                       r("span",
+                         vx,
+                         v(va.value ? "▾" : "▸"
+                        ),
+                         1
+                      )
+                    ]
+                  ),
+                   va.value ? (g(
+                    ),
+                     b("div",
+                       px,
+                       [(g(true
+                          ),
+                           b(J,
+                             null,
+                             vt(((bt = Ce.value
+                                ) == null ? void 0 : bt.zt_new
+                              ) || [
+                              ],
+                               (h
+                              ) => (g(
+                                ),
+                                 b("div",
+                                   { class: "rt-item",
+                                   key: h.code,
+                                   onClick: (q
+                                  ) => Xn(h
+                                  ),
+                                   style: { opacity: ".85" } },
+                                   [r("div",
+                                       gx,
+                                       [r("div",
+                                           bx,
+                                           [K(v(h.name
+                                              ) + " ",
+                                               1
+                                            ),
+                                             r("em",
+                                               null,
+                                               v(h.code
+                                              ),
+                                               1
+                                            )
+                                          ]
+                                        ),
+                                         r("div",
+                                           yx,
+                                           [o[154
+                                            ] || (o[154
+                                              ] = r("span",
+                                                 { class: "rt-tag zt" },
+                                                 "🚀涨停",
+                                                 -1
+                                              )
+                                            ),
+                                             h.seal_amount ? (g(
+                                              ),
+                                               b("span",
+                                                 _x,
+                                                 "封单 " + v(ae(h.seal_amount
+                                                  )
+                                                ),
+                                                 1
+                                              )
+                                            ) : E("",
+                                               true
+                                            )
+                                          ]
+                                        )
+                                      ]
+                                    ),
+                                     r("div",
+                                       wx,
+                                       [r("div",
+                                           { class: M(["rt-price",
+                                               Pt(h.change_pct
+                                              )
+                                            ]
+                                          ) },
+                                           v(Lt(h.price
+                                            )
+                                          ),
+                                           3
+                                        ),
+                                         r("div",
+                                           { class: M(["rt-chg",
+                                               Pt(h.change_pct
+                                              )
+                                            ]
+                                          ) },
+                                           "+" + v(Lt(h.change_pct,
+                                               2
+                                            )
+                                          ) + "%",
+                                           3
+                                        )
+                                      ]
+                                    )
+                                  ],
+                                   8,
+                                   mx
+                                )
+                              )
+                            ),
+                             128
+                          )
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             r("div",
+               kx,
+               [r("span",
+                   { class: M(["rt-chip",
+                       { on: Is.value === "全部" }
+                    ]
+                  ),
+                   onClick: o[41
+                  ] || (o[41
+                    ] = (h
+                    ) => Is.value = "全部"
+                  ) },
+                   "全部",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: Is.value === "主板" }
+                    ]
+                  ),
+                   onClick: o[42
+                  ] || (o[42
+                    ] = (h
+                    ) => Is.value = "主板"
+                  ) },
+                   "主板",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: Is.value === "创业板" }
+                    ]
+                  ),
+                   onClick: o[43
+                  ] || (o[43
+                    ] = (h
+                    ) => Is.value = "创业板"
+                  ) },
+                   "创业板",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: Is.value === "科创板" }
+                    ]
+                  ),
+                   onClick: o[44
+                  ] || (o[44
+                    ] = (h
+                    ) => Is.value = "科创板"
+                  ) },
+                   "科创板",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: Is.value === "北交所" }
+                    ]
+                  ),
+                   onClick: o[45
+                  ] || (o[45
+                    ] = (h
+                    ) => Is.value = "北交所"
+                  ) },
+                   "北交所",
+                   2
+                ),
+                 o[155
+                ] || (o[155
+                  ] = r("em",
+                     { class: "rt-chip-divider" },
+                     null,
+                     -1
+                  )
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: di.value === "全部" }
+                    ]
+                  ),
+                   onClick: o[46
+                  ] || (o[46
+                    ] = (h
+                    ) => di.value = "全部"
+                  ) },
+                   "🕐全部",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: di.value === "短线" }
+                    ]
+                  ),
+                   onClick: o[47
+                  ] || (o[47
+                    ] = (h
+                    ) => di.value = "短线"
+                  ) },
+                   "🕐短线",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: di.value === "波段" }
+                    ]
+                  ),
+                   onClick: o[48
+                  ] || (o[48
+                    ] = (h
+                    ) => di.value = "波段"
+                  ) },
+                   "📈波段",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "" }
+                    ]
+                  ),
+                   onClick: o[49
+                  ] || (o[49
+                    ] = (h
+                    ) => ze.value = ""
+                  ) },
+                   "RSI全部",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "os" }
+                    ]
+                  ),
+                   onClick: o[50
+                  ] || (o[50
+                    ] = (h
+                    ) => ze.value = "os"
+                  ) },
+                   "超卖<30",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "ob" }
+                    ]
+                  ),
+                   onClick: o[51
+                  ] || (o[51
+                    ] = (h
+                    ) => ze.value = "ob"
+                  ) },
+                   "超买>80",
+                   2
+                ),
+                 r("span",
+                   { class: M(["rt-chip",
+                       { on: ze.value === "mid" }
+                    ]
+                  ),
+                   onClick: o[52
+                  ] || (o[52
+                    ] = (h
+                    ) => ze.value = "mid"
+                  ) },
+                   "中位",
+                   2
+                )
+              ]
+            ),
+             (ft = (Y = Ce.value
+              ) == null ? void 0 : Y.items
+            ) != null && ft.length ? (g(
+              ),
+               b("div",
+                 Sx,
+                 [(g(true
+                    ),
+                     b(J,
+                       null,
+                       vt(Eg.value,
+                         (h
+                        ) => (g(
+                          ),
+                           b("div",
+                             { class: M(["rt-item",
+                                 { "rt-new": h.is_new }
+                              ]
+                            ),
+                             key: h.code,
+                             onClick: (q
+                            ) => Xn(h
+                            ) },
+                             [r("div",
+                                 Cx,
+                                 [r("div",
+                                     Mx,
+                                     [K(v(h.name
+                                        ) + " ",
+                                         1
+                                      ),
+                                       r("em",
+                                         null,
+                                         v(h.code
+                                        ),
+                                         1
+                                      ),
+                                       o[156
+                                      ] || (o[156
+                                        ] = K(
+                                        )
+                                      ),
+                                       r("span",
+                                         $x,
+                                         v(_a(h.board
+                                          )
+                                        ) + " " + v(en(h
+                                          )
+                                        ),
+                                         1
+                                      ),
+                                       o[157
+                                      ] || (o[157
+                                        ] = K(
+                                        )
+                                      ),
+                                       r("span",
+                                         { class: M(["rt-hz",
+                                             il(h
+                                            ) === "波段" ? "hz-m" : "hz-s"
+                                          ]
+                                        ) },
+                                         v(Sh(h
+                                          )
+                                        ),
+                                         3
+                                      ),
+                                       h.is_new ? (g(
+                                        ),
+                                         b("span",
+                                           Tx,
+                                           "🆕新"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.participate ? (g(
+                                        ),
+                                         b("span",
+                                           { key: 1,
+                                           class: M(["rt-tag",
+                                               h.participate === "可参与" ? "ok" : h.participate === "快封板" ? "fast" : "zt"
+                                            ]
+                                          ) },
+                                           v(h.participate === "可参与" ? "🚗可参与" : h.participate === "快封板" ? "⚠️快封板" : "🚫已涨停"
+                                          ),
+                                           3
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.discovered_at ? (g(
+                                        ),
+                                         b("span",
+                                           Ex,
+                                           "🕐 " + v(h.discovered_at
+                                          ) + " 发现" + v(h.duration ? " · " + h.duration + "分钟" : ""
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      )
+                                    ]
+                                  ),
+                                   r("div",
+                                     Rx,
+                                     [h.sig_zt ? (g(
+                                        ),
+                                         b("span",
+                                           zx,
+                                           "🚀涨停"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_pump ? (g(
+                                        ),
+                                         b("span",
+                                           Lx,
+                                           "📈拉升"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_vr ? (g(
+                                        ),
+                                         b("span",
+                                           Dx,
+                                           "⚡量比" + v(Lt(h.vr,
+                                               1
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_turn ? (g(
+                                        ),
+                                         b("span",
+                                           Px,
+                                           "🔄换手" + v(Lt(h.turnover,
+                                               1
+                                            )
+                                          ) + "%",
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_flow ? (g(
+                                        ),
+                                         b("span",
+                                           Ox,
+                                           "💰主力" + v(ae(h.main_flow
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_super ? (g(
+                                        ),
+                                         b("span",
+                                           Ax,
+                                           "🃏超大" + v(ae(h.super_flow
+                                            )
+                                          ),
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_reverse ? (g(
+                                        ),
+                                         b("span",
+                                           Nx,
+                                           "🔁反包"
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       h.sig_dump ? (g(
+                                        ),
+                                         b("span",
+                                           Ix,
+                                           "⚠️出货"
+                                        )
+                                      ) : E("",
+                                         true
+                                      )
+                                    ]
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 Fx,
+                                 [r("div",
+                                     { class: M(["rt-price",
+                                         Pt(h.change_pct
+                                        )
+                                      ]
+                                    ) },
+                                     v(Lt(h.price
+                                      )
+                                    ),
+                                     3
+                                  ),
+                                   r("div",
+                                     { class: M(["rt-chg",
+                                         Pt(h.change_pct
+                                        )
+                                      ]
+                                    ) },
+                                     v(h.change_pct > 0 ? "+" : ""
+                                    ) + v(Lt(h.change_pct,
+                                         2
+                                      )
+                                    ) + "%",
+                                     3
+                                  )
+                                ]
+                              )
+                            ],
+                             10,
+                             xx
+                          )
+                        )
+                      ),
+                       128
+                    )
+                  )
+                ]
+              )
+            ) : Ri.value ? (g(
+              ),
+               b("div",
+                 Bx,
+                 [...o[158
+                  ] || (o[158
+                    ] = [r("span",
+                         { class: "ld-spinner" },
+                         null,
+                         -1
+                      ),
+                       K(" 实时机会加载中…",
+                         -1
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : (g(
+              ),
+               b("div",
+                 Vx,
+                 [ze.value ? (g(
+                    ),
+                     b(J,
+                       { key: 0 },
+                       [K("RSI 筛选无结果：" + v(ze.value === "os" ? "RSI<30 超卖票在当前行情较少（普涨日动量偏高）" : ze.value === "ob" ? "RSI6>80 超买强势票" : "RSI 30-60 中位票"
+                          ) + "——可切换其他档",
+                           1
+                        )
+                      ],
+                       64
+                    )
+                  ) : (g(
+                    ),
+                     b(J,
+                       { key: 1 },
+                       [K("暂无实时机会 · " + v(((At = Ce.value
+                              ) == null ? void 0 : At.error
+                            ) || "非交易时段无数据"
+                          ),
+                           1
+                        )
+                      ],
+                       64
+                    )
+                  )
+                ]
+              )
+            )
+          ]
+        )
+      ) : (g(
+        ),
+         b(J,
+           { key: 3 },
+           [r("div",
+               jx,
+               [Jt.value ? (g(
+                  ),
+                   b("div",
+                     Wx,
+                     [Jt.value.error ? (g(
+                        ),
+                         b("div",
+                           Kx,
+                           "⚠️ " + v(Jt.value.error
+                          ),
+                           1
+                        )
+                      ) : (g(
+                        ),
+                         b("div",
+                           Hx,
+                           "🔮 " + v(Jt.value.items.length
+                          ) + " 只入选 — 11信号全市场扫描",
+                           1
+                        )
+                      ),
+                       r("div",
+                         qx,
+                         "满分" + v(Jt.value.maxScore || 13
+                        ) + " · " + v(Jt.value.total
+                        ) + " 只全市场扫描 · 信号越强明天概率越高（当前模式：" + v((sl.find((h
+                              ) => h.key === ne.value
+                            ) || {}
+                          ).name
+                        ) + "）",
+                         1
+                      ),
+                       Jt.value.themes && Jt.value.themes.length ? (g(
+                        ),
+                         b("div",
+                           Ux,
+                           [o[159
+                            ] || (o[159
+                              ] = K("🔥 今日主线：",
+                                 -1
+                              )
+                            ),
+                             (g(true
+                              ),
+                               b(J,
+                                 null,
+                                 vt(Jt.value.themes.slice(0,
+                                     5
+                                  ),
+                                   (h
+                                  ) => (g(
+                                    ),
+                                     b("span",
+                                       { key: h.name,
+                                       class: "btv-theme" },
+                                       v(h.name
+                                      ) + " " + v(h.count
+                                      ) + "家",
+                                       1
+                                    )
+                                  )
+                                ),
+                                 128
+                              )
+                            )
+                          ]
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[53
+                        ] || (o[53
+                          ] = (h
+                          ) => Yr.value = !Yr.value
+                        ),
+                         style: { "font-size": "10px",
+                         "margin-left": "8px" } },
+                         "📜 盘前/盘后记录"
+                      ),
+                       r("button",
+                         { class: "aa-btn",
+                         onClick: o[54
+                        ] || (o[54
+                          ] = (h
+                          ) => Sn.value = !Sn.value
+                        ),
+                         style: { "font-size": "10px",
+                         "margin-left": "8px" } },
+                         v(Sn.value ? "收起" : "策略说明"
+                        ),
+                         1
+                      )
+                    ]
+                  )
+                ) : E("",
+                   true
+                ),
+                 r("div",
+                   Jx,
+                   [r("span",
+                       { class: M(["btp-status",
+                           { ok: tn.value,
+                           err: !tn.value }
+                        ]
+                      ) },
+                       v(tn.value ? "🟢 服务器在线" : "🔴 离线"
+                      ),
+                       3
+                    ),
+                     r("button",
+                       { class: "aa-btn bt-go",
+                       onClick: ec,
+                       disabled: ds.value },
+                       v(ds.value ? "⏳ 加载中..." : "🔮 预测"
+                      ),
+                       9,
+                       Xx
+                    )
+                  ]
+                )
+              ]
+            ),
+             r("div",
+               Gx,
+               [r("div",
+                   Qx,
+                   [o[160
+                    ] || (o[160
+                      ] = K("🧩 12 个策略信号判定规则 ",
+                         -1
+                      )
+                    ),
+                     r("button",
+                       { class: "aa-btn",
+                       onClick: o[55
+                      ] || (o[55
+                        ] = (h
+                        ) => Sn.value = !Sn.value
+                      ),
+                       style: { "font-size": "10px",
+                       "margin-left": "8px" } },
+                       v(Sn.value ? "收起" : "展开"
+                      ),
+                       1
+                    )
+                  ]
+                ),
+                 Sn.value ? (g(
+                  ),
+                   b("div",
+                     Yx,
+                     [(g(
+                        ),
+                         b(J,
+                           null,
+                           vt(Lg,
+                             (h
+                            ) => r("div",
+                               { class: "pi-card",
+                               key: h.key },
+                               [r("b",
+                                   null,
+                                   v(h.name
+                                  ),
+                                   1
+                                ),
+                                 r("em",
+                                   null,
+                                   v(h.score
+                                  ),
+                                   1
+                                ),
+                                 r("div",
+                                   Zx,
+                                   v(zh(h
+                                    )
+                                  ),
+                                   1
+                                ),
+                                 r("span",
+                                   t5,
+                                   v(h.tag
+                                  ),
+                                   1
+                                )
+                              ]
+                            )
+                          ),
+                           64
+                        )
+                      )
+                    ]
+                  )
+                ) : E("",
+                   true
+                ),
+                 r("div",
+                   e5,
+                   "🔢 满分" + v(Jt.value.maxScore || 13
+                  ) + " = 6基础信号 + 低吸形态 + 模式权重（⚡超短:龙头×2/题材×2/价值×0 · 📈波段:龙头×2/题材×2/价值×1 · 🏦长线:龙头×1/题材×1/价值×2）",
+                   1
+                )
+              ]
+            ),
+             ds.value ? (g(
+              ),
+               b("div",
+                 s5,
+                 [o[161
+                  ] || (o[161
+                    ] = r("div",
+                       { class: "btl-spinner" },
+                       [r("span"
+                        ),
+                         r("span"
+                        ),
+                         r("span"
+                        )
+                      ],
+                       -1
+                    )
+                  ),
+                   r("div",
+                     i5,
+                     v(fa.value
+                    ),
+                     1
+                  ),
+                   r("div",
+                     n5,
+                     [r("i",
+                         { style: Pe({ width: jl.value + "%" }
+                        ) },
+                         null,
+                         4
+                      )
+                    ]
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             Jt.value ? (g(
+              ),
+               b("div",
+                 l5,
+                 [r("div",
+                     o5,
+                     [(g(
+                        ),
+                         b(J,
+                           null,
+                           vt(kn,
+                             (h
+                            ) => r("button",
+                               { key: h.key,
+                               class: M(["psb-btn",
+                                   { on: nl.value === h.key }
+                                ]
+                              ),
+                               onClick: (q
+                              ) => {
+      nl.value = h.key,
+                               Ah(
+                              );
+    } },
+                               v(h.icon
+                              ) + " " + v(h.name
+                              ),
+                               11,
+                               a5
+                            )
+                          ),
+                           64
+                        )
+                      )
+                    ]
+                  ),
+                   r("div",
+                     r5,
+                     v((kn.find((h
+                          ) => h.key === nl.value
+                        ) || {}
+                      ).desc || ""
+                    ),
+                     1
+                  ),
+                   Jt.value.boardStats ? (g(
+                    ),
+                     b("div",
+                       c5,
+                       [(g(true
+                          ),
+                           b(J,
+                             null,
+                             vt(Jt.value.boardStats,
+                               (h,
+                                 q
+                              ) => (g(
+                                ),
+                                 b("span",
+                                   { key: q,
+                                   class: "pbs-item" },
+                                   [K(v(_a({ board: q }
+                                        )
+                                      ) + " " + v(q
+                                      ) + " ",
+                                       1
+                                    ),
+                                     r("em",
+                                       null,
+                                       v(h
+                                      ),
+                                       1
+                                    )
+                                  ]
+                                )
+                              )
+                            ),
+                             128
+                          )
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   Jt.value.updated ? (g(
+                    ),
+                     b("div",
+                       u5,
+                       "🕐 信号更新: " + v(typeof Jt.value.updated == "string" ? Jt.value.updated.slice(11,
+                           16
+                        ) : "-"
+                      ) + "（K线信号60分钟重算·行情实时） · 扫描 " + v(Jt.value.total
+                      ) + " 只",
+                       1
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   r("div",
+                     h5,
+                     [de(r("input",
+                           { class: "pl-search",
+                           "onUpdate:modelValue": o[56
+                          ] || (o[56
+                            ] = (h
+                            ) => ql.value = h
+                          ),
+                           placeholder: "🔍 搜索代码/名称" },
+                           null,
+                           512
+                        ),
+                         [[Ne,
+                             ql.value
+                          ]
+                        ]
+                      ),
+                       r("div",
+                         d5,
+                         [r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "" }
+                              ]
+                            ),
+                             onClick: o[57
+                            ] || (o[57
+                              ] = (h
+                              ) => Ze.value = ""
+                            ) },
+                             "全部",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "主板" }
+                              ]
+                            ),
+                             onClick: o[58
+                            ] || (o[58
+                              ] = (h
+                              ) => Ze.value = "主板"
+                            ) },
+                             "主板",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "创业板" }
+                              ]
+                            ),
+                             onClick: o[59
+                            ] || (o[59
+                              ] = (h
+                              ) => Ze.value = "创业板"
+                            ) },
+                             "创业板",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "科创板" }
+                              ]
+                            ),
+                             onClick: o[60
+                            ] || (o[60
+                              ] = (h
+                              ) => Ze.value = "科创板"
+                            ) },
+                             "科创板",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "北交所" }
+                              ]
+                            ),
+                             onClick: o[61
+                            ] || (o[61
+                              ] = (h
+                              ) => Ze.value = "北交所"
+                            ) },
+                             "北交所",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: Ze.value === "ST" }
+                              ]
+                            ),
+                             onClick: o[62
+                            ] || (o[62
+                              ] = (h
+                              ) => Ze.value = "ST"
+                            ) },
+                             "ST",
+                             2
+                          )
+                        ]
+                      ),
+                       r("div",
+                         f5,
+                         [r("span",
+                             { class: M(["pf-chip",
+                                 { on: ei.value === 0 }
+                              ]
+                            ),
+                             onClick: o[63
+                            ] || (o[63
+                              ] = (h
+                              ) => ei.value = 0
+                            ) },
+                             "≥0分",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: ei.value === 3 }
+                              ]
+                            ),
+                             onClick: o[64
+                            ] || (o[64
+                              ] = (h
+                              ) => ei.value = 3
+                            ) },
+                             "≥3分",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: ei.value === 6 }
+                              ]
+                            ),
+                             onClick: o[65
+                            ] || (o[65
+                              ] = (h
+                              ) => ei.value = 6
+                            ) },
+                             "≥6分",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: ll.value }
+                              ]
+                            ),
+                             onClick: o[66
+                            ] || (o[66
+                              ] = (h
+                              ) => ll.value = !ll.value
+                            ) },
+                             "🔥只看连击",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: fs.value === "" }
+                              ]
+                            ),
+                             onClick: o[67
+                            ] || (o[67
+                              ] = (h
+                              ) => fs.value = ""
+                            ) },
+                             "RSI全部",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: fs.value === "os" }
+                              ]
+                            ),
+                             onClick: o[68
+                            ] || (o[68
+                              ] = (h
+                              ) => fs.value = "os"
+                            ) },
+                             "超卖<30",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: fs.value === "ob" }
+                              ]
+                            ),
+                             onClick: o[69
+                            ] || (o[69
+                              ] = (h
+                              ) => fs.value = "ob"
+                            ) },
+                             "超买>80",
+                             2
+                          ),
+                           r("span",
+                             { class: M(["pf-chip",
+                                 { on: fs.value === "mid" }
+                              ]
+                            ),
+                             onClick: o[70
+                            ] || (o[70
+                              ] = (h
+                              ) => fs.value = "mid"
+                            ) },
+                             "中位30-60",
+                             2
+                          ),
+                           de(r("select",
+                               { class: "pf-sel",
+                               "onUpdate:modelValue": o[71
+                              ] || (o[71
+                                ] = (h
+                                ) => ga.value = h
+                              ) },
+                               [...o[162
+                                ] || (o[162
+                                  ] = [r("option",
+                                       { value: "score" },
+                                       "排序: 分数",
+                                       -1
+                                    ),
+                                     r("option",
+                                       { value: "streak" },
+                                       "排序: 连击",
+                                       -1
+                                    )
+                                  ]
+                                )
+                              ],
+                               512
+                            ),
+                             [[fl,
+                                 ga.value
+                              ]
+                            ]
+                          )
+                        ]
+                      )
+                    ]
+                  ),
+                   o[175
+                  ] || (o[175
+                    ] = r("div",
+                       { class: "pl-header" },
+                       [r("span",
+                           null,
+                           "股票"
+                        ),
+                         r("span",
+                           null,
+                           "强度"
+                        ),
+                         r("span",
+                           null,
+                           "触发策略"
+                        ),
+                         r("span",
+                           null,
+                           "验证/参考"
+                        )
+                      ],
+                       -1
+                    )
+                  ),
+                   (g(true
+                    ),
+                     b(J,
+                       null,
+                       vt(ba.value,
+                         (h
+                        ) => (g(
+                          ),
+                           b("div",
+                             { class: M(["pl-row",
+                                 h.score >= 6 ? "pl-hi" : h.score >= 3 ? "pl-mid" : "pl-lo"
+                              ]
+                            ),
+                             key: h.code,
+                             onClick: (q
+                            ) => Xn(h
+                            ) },
+                             [r("div",
+                                 p5,
+                                 [r("strong",
+                                     null,
+                                     v(h.name
+                                    ),
+                                     1
+                                  ),
+                                   r("em",
+                                     null,
+                                     v(h.code
+                                    ),
+                                     1
+                                  ),
+                                   r("span",
+                                     m5,
+                                     [K(v(_a({ board: en(h
+                                            ) }
+                                          )
+                                        ) + " " + v(en(h
+                                          )
+                                        ) + " ",
+                                         1
+                                      ),
+                                       h.price != null ? (g(
+                                        ),
+                                         b("i",
+                                           { key: 0,
+                                           class: M(Pt(h.change_pct
+                                            )
+                                          ) },
+                                           [K(v(Lt(h.price
+                                                )
+                                              ) + " ",
+                                               1
+                                            ),
+                                             h.change_pct != null ? (g(
+                                              ),
+                                               b(J,
+                                                 { key: 0 },
+                                                 [K(v(h.change_pct > 0 ? "+" : ""
+                                                    ) + v(h.change_pct
+                                                    ) + "%",
+                                                     1
+                                                  )
+                                                ],
+                                                 64
+                                              )
+                                            ) : E("",
+                                               true
+                                            )
+                                          ],
+                                           2
+                                        )
+                                      ) : E("",
+                                         true
+                                      ),
+                                       o[163
+                                      ] || (o[163
+                                        ] = K(
+                                        )
+                                      ),
+                                       h.scanned_at ? (g(
+                                        ),
+                                         b("b",
+                                           g5,
+                                           v(h.scanned_at
+                                          ) + "扫",
+                                           1
+                                        )
+                                      ) : E("",
+                                         true
+                                      )
+                                    ]
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 b5,
+                                 [r("span",
+                                     { class: M(["ps-num",
+                                         h.score >= 6 ? "hi" : h.score >= 3 ? "mid" : "lo"
+                                      ]
+                                    ) },
+                                     v(h.score
+                                    ),
+                                     3
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 y5,
+                                 [h.streak > 1 ? (g(
+                                    ),
+                                     b("span",
+                                       _5,
+                                       "🔥" + v(h.streak
+                                      ) + "日连",
+                                       1
+                                    )
+                                  ) : E("",
+                                     true
+                                  ),
+                                   (g(true
+                                    ),
+                                     b(J,
+                                       null,
+                                       vt(ma(h
+                                        ).slice(0,
+                                           3
+                                        ),
+                                         (q
+                                        ) => (g(
+                                          ),
+                                           b("span",
+                                             { key: q.key,
+                                             class: "ps-tag on",
+                                             title: q.param },
+                                             v(q.key === "sig_leader" && h.lbc ? "👑龙头" + h.lbc + "板" : q.name
+                                            ),
+                                             9,
+                                             w5
+                                          )
+                                        )
+                                      ),
+                                       128
+                                    )
+                                  ),
+                                   ma(h
+                                  ).length > 3 ? (g(
+                                    ),
+                                     b("span",
+                                       k5,
+                                       "+" + v(ma(h
+                                        ).length - 3
+                                      ),
+                                       1
+                                    )
+                                  ) : E("",
+                                     true
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 S5,
+                                 [h.trade || h.entry ? (g(
+                                    ),
+                                     b("div",
+                                       x5,
+                                       [h.trade ? (g(
+                                          ),
+                                           b(J,
+                                             { key: 0 },
+                                             [K("→" + v(h.trade.entry_label
+                                                ),
+                                                 1
+                                              ),
+                                               o[164
+                                              ] || (o[164
+                                                ] = r("br",
+                                                   null,
+                                                   null,
+                                                   -1
+                                                )
+                                              ),
+                                               r("small",
+                                                 null,
+                                                 v(Lt(h.trade.entry
+                                                  )
+                                                ) + " 止" + v(Lt(h.trade.stop
+                                                  )
+                                                ) + " " + v(h.trade.position
+                                                ) + "%仓",
+                                                 1
+                                              )
+                                            ],
+                                             64
+                                          )
+                                        ) : (g(
+                                          ),
+                                           b(J,
+                                             { key: 1 },
+                                             [K("📌 入场 " + v(Lt(h.entry
+                                                  )
+                                                ),
+                                                 1
+                                              ),
+                                               o[165
+                                              ] || (o[165
+                                                ] = r("br",
+                                                   null,
+                                                   null,
+                                                   -1
+                                                )
+                                              ),
+                                               r("small",
+                                                 null,
+                                                 "止损 " + v(Lt(h.stop
+                                                  )
+                                                ),
+                                                 1
+                                              )
+                                            ],
+                                             64
+                                          )
+                                        )
+                                      ]
+                                    )
+                                  ) : (g(
+                                    ),
+                                     b("div",
+                                       C5,
+                                       "-"
+                                    )
+                                  )
+                                ]
+                              )
+                            ],
+                             10,
+                             v5
+                          )
+                        )
+                      ),
+                       128
+                    )
+                  ),
+                   ba.value.length < Dh.value ? (g(
+                    ),
+                     b("div",
+                       { key: 2,
+                       class: "pl-loadmore",
+                       onClick: Og },
+                       "加载更多 (" + v(ba.value.length
+                      ) + "/" + v(Dh.value
+                      ) + ")",
+                       1
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   !ba.value.length && !ds.value ? (g(
+                    ),
+                     b("div",
+                       M5,
+                       [fs.value ? (g(
+                          ),
+                           b(J,
+                             { key: 0 },
+                             [K("当前 RSI 筛选无结果：" + v(fs.value === "os" ? "RSI<30 超卖票在当前行情较少（普涨日动量偏高）" : fs.value === "ob" ? "RSI6>80 超买强势票" : "RSI 30-60 中位票"
+                                ) + "——可切换其他 RSI 档或清除筛选",
+                                 1
+                              )
+                            ],
+                             64
+                          )
+                        ) : (g(
+                          ),
+                           b(J,
+                             { key: 1 },
+                             [K("没有符合条件的股票"
+                              )
+                            ],
+                             64
+                          )
+                        ),
+                         r("button",
+                           { class: "aa-btn",
+                           onClick: Ag,
+                           style: { "font-size": "10px" } },
+                           "重置筛选"
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   r("div",
+                     $5,
+                     [o[166
+                      ] || (o[166
+                        ] = r("div",
+                           { class: "plp-title" },
+                           "📊 当前结果信号分布（点击打法标签切换筛选）",
+                           -1
+                        )
+                      ),
+                       r("div",
+                         T5,
+                         [(g(true
+                            ),
+                             b(J,
+                               null,
+                               vt(Dg.value,
+                                 (h,
+                                   q
+                                ) => (g(
+                                  ),
+                                   b("span",
+                                     { class: M(["plp-chip",
+                                         { hit: h > 0 }
+                                      ]
+                                    ),
+                                     key: q,
+                                     onClick: (Ms
+                                    ) => {
+      var $s;
+      nl.value = (($s = kn.find((ps
+                                          ) => (ps.sigs || [
+                                            ]
+                                          ).includes(q
+                                          )
+                                        )
+                                      ) == null ? void 0 : $s.key
+                                    ) || "all",
+                                     Ah(
+                                    );
+    } },
+                                     v(pa[q
+                                      ]
+                                    ) + " " + v(h
+                                    ),
+                                     11,
+                                     E5
+                                  )
+                                )
+                              ),
+                               128
+                            )
+                          )
+                        ]
+                      ),
+                       o[167
+                      ] || (o[167
+                        ] = r("div",
+                           { class: "plp-hint" },
+                           "点击信号 → 切到对应打法 · 点击股票行看入场/止损/仓位",
+                           -1
+                        )
+                      )
+                    ]
+                  ),
+                   Yr.value ? (g(
+                    ),
+                     b("div",
+                       R5,
+                       [r("div",
+                           z5,
+                           [o[168
+                            ] || (o[168
+                              ] = K("📜 预测 / 总结记录 ",
+                                 -1
+                              )
+                            ),
+                             r("button",
+                               { class: "aa-btn",
+                               onClick: o[72
+                              ] || (o[72
+                                ] = (h
+                                ) => Ng(
+                                )
+                              ),
+                               style: { "font-size": "10px" } },
+                               "刷新"
+                            )
+                          ]
+                        ),
+                         Li.value.count ? (g(
+                          ),
+                           b("div",
+                             L5,
+                             [r("div",
+                                 D5,
+                                 [r("b",
+                                     null,
+                                     v(Li.value.count
+                                    ),
+                                     1
+                                  ),
+                                   o[169
+                                  ] || (o[169
+                                    ] = r("i",
+                                       null,
+                                       "总结天数",
+                                       -1
+                                    )
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 P5,
+                                 [r("b",
+                                     { class: M(Li.value.avgWr >= 50 ? "up" : "down"
+                                    ) },
+                                     v(Li.value.avgWr
+                                    ) + "%",
+                                     3
+                                  ),
+                                   o[170
+                                  ] || (o[170
+                                    ] = r("i",
+                                       null,
+                                       "平均命中率",
+                                       -1
+                                    )
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 O5,
+                                 [r("b",
+                                     { class: M(Pt(Li.value.avgRet
+                                      )
+                                    ) },
+                                     v(Li.value.avgRet > 0 ? "+" : ""
+                                    ) + v(Li.value.avgRet
+                                    ) + "%",
+                                     3
+                                  ),
+                                   o[171
+                                  ] || (o[171
+                                    ] = r("i",
+                                       null,
+                                       "平均涨幅",
+                                       -1
+                                    )
+                                  )
+                                ]
+                              ),
+                               r("div",
+                                 A5,
+                                 [r("b",
+                                     { class: M(Li.value.recentWr >= 50 ? "up" : "down"
+                                    ) },
+                                     v(Li.value.recentWr
+                                    ) + "%",
+                                     3
+                                  ),
+                                   o[172
+                                  ] || (o[172
+                                    ] = r("i",
+                                       null,
+                                       "近7天命中率",
+                                       -1
+                                    )
+                                  )
+                                ]
+                              )
+                            ]
+                          )
+                        ) : E("",
+                           true
+                        ),
+                         ya.value.length ? (g(
+                          ),
+                           b("div",
+                             N5,
+                             [Zr.value.length ? (g(
+                                ),
+                                 b("div",
+                                   I5,
+                                   [o[173
+                                    ] || (o[173
+                                      ] = r("div",
+                                         { class: "plh-gh" },
+                                         "🌙 盘后总结 · 当日验证",
+                                         -1
+                                      )
+                                    ),
+                                     (g(true
+                                      ),
+                                       b(J,
+                                         null,
+                                         vt(Zr.value,
+                                           (h
+                                          ) => (g(
+                                            ),
+                                             b("div",
+                                               { class: "plh-item",
+                                               key: h.date + h.type,
+                                               onClick: (q
+                                              ) => Oh(h
+                                              ) },
+                                               [r("span",
+                                                   V5,
+                                                   v(typeof h.date == "string" ? h.date.slice(5
+                                                    ) : h.date
+                                                  ),
+                                                   1
+                                                ),
+                                                 h.winrate != null ? (g(
+                                                  ),
+                                                   b("span",
+                                                     { key: 0,
+                                                     class: M(["plh-wr",
+                                                         h.winrate >= 50 ? "up" : "down"
+                                                      ]
+                                                    ) },
+                                                     v(h.winrate
+                                                    ) + "%",
+                                                     3
+                                                  )
+                                                ) : E("",
+                                                   true
+                                                ),
+                                                 r("span",
+                                                   B5,
+                                                   v(h.summary || ""
+                                                  ),
+                                                   1
+                                                )
+                                              ],
+                                               8,
+                                               F5
+                                            )
+                                          )
+                                        ),
+                                         128
+                                      )
+                                    )
+                                  ]
+                                )
+                              ) : E("",
+                                 true
+                              ),
+                               Ph.value.length ? (g(
+                                ),
+                                 b("div",
+                                   j5,
+                                   [o[174
+                                    ] || (o[174
+                                      ] = r("div",
+                                         { class: "plh-gh" },
+                                         "🌅 明日预测",
+                                         -1
+                                      )
+                                    ),
+                                     (g(true
+                                      ),
+                                       b(J,
+                                         null,
+                                         vt(Ph.value,
+                                           (h
+                                          ) => (g(
+                                            ),
+                                             b("div",
+                                               { class: "plh-item",
+                                               key: h.date + h.type,
+                                               onClick: (q
+                                              ) => Oh(h
+                                              ) },
+                                               [r("span",
+                                                   H5,
+                                                   v(typeof h.date == "string" ? h.date.slice(5
+                                                    ) : h.date
+                                                  ),
+                                                   1
+                                                ),
+                                                 r("span",
+                                                   K5,
+                                                   v(h.count
+                                                  ) + "只",
+                                                   1
+                                                ),
+                                                 r("span",
+                                                   q5,
+                                                   v(h.summary || ""
+                                                  ),
+                                                   1
+                                                )
+                                              ],
+                                               8,
+                                               W5
+                                            )
+                                          )
+                                        ),
+                                         128
+                                      )
+                                    )
+                                  ]
+                                )
+                              ) : E("",
+                                 true
+                              )
+                            ]
+                          )
+                        ) : (g(
+                          ),
+                           b("div",
+                             U5,
+                             "暂无记录 · 每日 19:30 自动生成今日总结+明日预测（含当天收盘数据），06:30 晨间更新"
+                          )
+                        ),
+                         ol.value ? (g(
+                          ),
+                           b("div",
+                             J5,
+                             [r("div",
+                                 X5,
+                                 "📋 " + v(ol.value.type === "morning" ? "明日预测" : "当日总结"
+                                ) + " " + v(ol.value.date
+                                ),
+                                 1
+                              ),
+                               r("div",
+                                 G5,
+                                 v((Zt = ol.value.data
+                                  ) == null ? void 0 : Zt.summary
+                                ),
+                                 1
+                              ),
+                               (g(true
+                                ),
+                                 b(J,
+                                   null,
+                                   vt(((Ct = ol.value.data
+                                      ) == null ? void 0 : Ct.items
+                                    ) || [
+                                    ],
+                                     (h
+                                    ) => (g(
+                                      ),
+                                       b("div",
+                                         { class: "plh-ditems",
+                                         key: h.code },
+                                         [r("span",
+                                             Q5,
+                                             v(h.name
+                                            ),
+                                             1
+                                          ),
+                                           r("span",
+                                             { class: M(["ph-score",
+                                                 h.score >= 6 ? "up" : h.score >= 3 ? "" : "down"
+                                              ]
+                                            ) },
+                                             v(h.score
+                                            ) + "分",
+                                             3
+                                          ),
+                                           h.actual_chg != null ? (g(
+                                            ),
+                                             b("span",
+                                               { key: 0,
+                                               class: M(["ph-chg",
+                                                   Pt(h.actual_chg
+                                                  )
+                                                ]
+                                              ) },
+                                               v(h.actual_chg > 0 ? "+" : ""
+                                              ) + v(h.actual_chg
+                                              ) + "%",
+                                               3
+                                            )
+                                          ) : E("",
+                                             true
+                                          ),
+                                           r("span",
+                                             Y5,
+                                             v((h.sigs || [
+                                                ]
+                                              ).slice(0,
+                                                 4
+                                              ).join(" "
+                                              )
+                                            ),
+                                             1
+                                          )
+                                        ]
+                                      )
+                                    )
+                                  ),
+                                   128
+                                )
+                              )
+                            ]
+                          )
+                        ) : E("",
+                           true
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            )
+          ],
+           64
+        )
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ 

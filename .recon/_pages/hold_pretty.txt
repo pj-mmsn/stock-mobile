@@ -1,0 +1,1385 @@
+st.value === "hold" ? (g(
+  ),
+   b("div",
+     L$,
+     [xe.value.length ? (g(
+        ),
+         b("div",
+           D$,
+           [r("div",
+               P$,
+               [r("div",
+                   O$,
+                   [o[221
+                    ] || (o[221
+                      ] = r("span",
+                         null,
+                         "总市值",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       null,
+                       v(Lt(tl.value
+                        )
+                      ) + "亿",
+                       1
+                    )
+                  ]
+                ),
+                 r("div",
+                   A$,
+                   [o[222
+                    ] || (o[222
+                      ] = r("span",
+                         null,
+                         "总成本",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       null,
+                       v(Lt(oa.value
+                        )
+                      ) + "亿",
+                       1
+                    )
+                  ]
+                ),
+                 r("div",
+                   N$,
+                   [o[223
+                    ] || (o[223
+                      ] = r("span",
+                         null,
+                         "总盈亏",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       { class: M(aa.value >= 0 ? "up" : "down"
+                      ) },
+                       v(ae(aa.value
+                        )
+                      ),
+                       3
+                    )
+                  ]
+                ),
+                 r("div",
+                   I$,
+                   [o[224
+                    ] || (o[224
+                      ] = r("span",
+                         null,
+                         "盈亏%",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       { class: M(aa.value >= 0 ? "up" : "down"
+                      ) },
+                       v(mh.value
+                      ) + "%",
+                       3
+                    )
+                  ]
+                )
+              ]
+            ),
+             r("div",
+               F$,
+               [r("span",
+                   null,
+                   "持仓 " + v(xe.value.length
+                  ) + " 只",
+                   1
+                ),
+                 r("span",
+                   null,
+                   "现金 " + v(ae(Yi.value
+                    )
+                  ),
+                   1
+                )
+              ]
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       xe.value.length ? (g(
+        ),
+         b("div",
+           V$,
+           [(g(true
+              ),
+               b(J,
+                 null,
+                 vt(Zi.value,
+                   (h
+                  ) => (g(
+                    ),
+                     b("div",
+                       { class: "hold-item",
+                       key: h.secid },
+                       [r("div",
+                           { class: "hi-main",
+                           onClick: (q
+                          ) => wh(h
+                          ) },
+                           [r("span",
+                               j$,
+                               v(h.name
+                              ),
+                               1
+                            ),
+                             r("span",
+                               W$,
+                               v(h.code
+                              ),
+                               1
+                            )
+                          ],
+                           8,
+                           B$
+                        ),
+                         r("div",
+                           H$,
+                           [r("span",
+                               null,
+                               v(h.shares
+                              ) + "股 · 成本 " + v(Lt(h.cost
+                                )
+                              ),
+                               1
+                            ),
+                             r("span",
+                               null,
+                               [o[225
+                                ] || (o[225
+                                  ] = K("现价 ",
+                                     -1
+                                  )
+                                ),
+                                 r("b",
+                                   { class: M(Pt(h.change_pct
+                                    )
+                                  ) },
+                                   v(Lt(h.price
+                                    )
+                                  ),
+                                   3
+                                )
+                              ]
+                            )
+                          ]
+                        ),
+                         r("div",
+                           { class: M(["hi-pl",
+                               h.pl >= 0 ? "up" : "down"
+                            ]
+                          ) },
+                           [r("b",
+                               null,
+                               v(h.pl >= 0 ? "+" : ""
+                              ) + v(ae(h.pl
+                                )
+                              ),
+                               1
+                            ),
+                             r("span",
+                               null,
+                               v(h.plPct >= 0 ? "+" : ""
+                              ) + v(h.plPct
+                              ) + "%",
+                               1
+                            )
+                          ],
+                           2
+                        ),
+                         h.advice ? (g(
+                          ),
+                           b("div",
+                             K$,
+                             [r("div",
+                                 { class: M(["him-advice",
+                                     h.adviceCls
+                                  ]
+                                ) },
+                                 v(h.advice
+                                ),
+                                 3
+                              ),
+                               h.stopLoss ? (g(
+                                ),
+                                 b("div",
+                                   q$,
+                                   [r("span",
+                                       null,
+                                       "🛑止损 " + v(Lt(h.stopLoss
+                                        )
+                                      ),
+                                       1
+                                    ),
+                                     h.distToStop != null ? (g(
+                                      ),
+                                       b("span",
+                                         { key: 0,
+                                         class: M(h.distToStop < 3 ? "down" : ""
+                                        ) },
+                                         "距" + v(h.distToStop.toFixed(1
+                                          )
+                                        ) + "%",
+                                         3
+                                      )
+                                    ) : E("",
+                                       true
+                                    )
+                                  ]
+                                )
+                              ) : E("",
+                                 true
+                              )
+                            ]
+                          )
+                        ) : E("",
+                           true
+                        ),
+                         r("div",
+                           U$,
+                           [r("button",
+                               { class: "hi-btn",
+                               onClick: js((q
+                                ) => ug(h
+                                ),
+                                 ["stop"
+                                ]
+                              ) },
+                               "✏️",
+                               8,
+                               J$
+                            ),
+                             r("button",
+                               { class: "hi-btn",
+                               onClick: js((q
+                                ) => hg(h
+                                ),
+                                 ["stop"
+                                ]
+                              ) },
+                               "🗑",
+                               8,
+                               X$
+                            )
+                          ]
+                        )
+                      ]
+                    )
+                  )
+                ),
+                 128
+              )
+            )
+          ]
+        )
+      ) : (g(
+        ),
+         b("div",
+           G$,
+           "还没有持仓，点下方 ➕ 添加"
+        )
+      ),
+       r("div",
+         Q$,
+         [r("button",
+             { class: "ha-btn ha-add",
+             onClick: o[97
+            ] || (o[97
+              ] = (h
+              ) => Vl.value = true
+            ) },
+             "➕ 添加持仓"
+          ),
+           r("button",
+             { class: "ha-btn ha-ai",
+             onClick: mg,
+             disabled: el.value || !xe.value.length },
+             v(el.value ? "分析中..." : "🤖 持仓分析"
+            ),
+             9,
+             Y$
+          )
+        ]
+      ),
+       Mi.value ? (g(
+        ),
+         b("div",
+           Z$,
+           [o[226
+            ] || (o[226
+              ] = r("div",
+                 { class: "hai-title" },
+                 "🤖 持仓分析",
+                 -1
+              )
+            ),
+             r("div",
+               t6,
+               v(Mi.value.summary
+              ),
+               1
+            ),
+             (g(true
+              ),
+               b(J,
+                 null,
+                 vt(Mi.value.plan || [
+                  ],
+                   (h,
+                     q
+                  ) => {
+      var Ms,
+                   $s;
+      return g(
+                  ),
+                   b("div",
+                     { class: "hai-plan",
+                     key: q },
+                     [r("div",
+                         e6,
+                         v(h.name || h.code
+                        ),
+                         1
+                      ),
+                       r("div",
+                         { class: M(["hai-action",
+                             (Ms = h.action
+                            ) != null && Ms.includes("加"
+                            ) ? "up" : ($s = h.action
+                            ) != null && $s.includes("减"
+                            ) ? "down" : ""
+                          ]
+                        ) },
+                         v(h.action
+                        ),
+                         3
+                      ),
+                       r("div",
+                         s6,
+                         v(h.reason
+                        ),
+                         1
+                      )
+                    ]
+                  );
+    }
+                ),
+                 128
+              )
+            ),
+             Mi.value.portfolioAdvice ? (g(
+              ),
+               b("div",
+                 i6,
+                 v(Mi.value.portfolioAdvice
+                ),
+                 1
+              )
+            ) : E("",
+               true
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       xe.value.length ? (g(
+        ),
+         b("div",
+           n6,
+           [o[230
+            ] || (o[230
+              ] = r("div",
+                 { class: "ha-title" },
+                 "📊 持仓明细",
+                 -1
+              )
+            ),
+             r("div",
+               l6,
+               [r("span",
+                   null,
+                   [o[227
+                    ] || (o[227
+                      ] = K("总市值 ",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       { class: M(Pt(bn.value.totalPnl
+                        )
+                      ) },
+                       v(ae(bn.value.totalVal
+                        )
+                      ),
+                       3
+                    )
+                  ]
+                ),
+                 r("span",
+                   null,
+                   [o[228
+                    ] || (o[228
+                      ] = K("总成本 ",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       null,
+                       v(ae(bn.value.totalCost
+                        )
+                      ),
+                       1
+                    )
+                  ]
+                ),
+                 r("span",
+                   null,
+                   [o[229
+                    ] || (o[229
+                      ] = K("总盈亏 ",
+                         -1
+                      )
+                    ),
+                     r("b",
+                       { class: M(Pt(bn.value.totalPnl
+                        )
+                      ) },
+                       v((bn.value.totalPnl > 0 ? "+" : ""
+                        ) + bn.value.totalPnl.toFixed(1
+                        )
+                      ) + "%",
+                       3
+                    )
+                  ]
+                )
+              ]
+            ),
+             (g(true
+              ),
+               b(J,
+                 null,
+                 vt(bn.value.items,
+                   (h
+                  ) => (g(
+                    ),
+                     b("div",
+                       { class: "ha-item",
+                       key: h.code },
+                       [r("div",
+                           o6,
+                           [r("span",
+                               null,
+                               v(h.name || h.code
+                              ),
+                               1
+                            ),
+                             r("span",
+                               { class: M(["hai-pct",
+                                   Pt(h.pnl
+                                  )
+                                ]
+                              ) },
+                               v((h.pnl > 0 ? "+" : ""
+                                ) + h.pnl.toFixed(1
+                                )
+                              ) + "%",
+                               3
+                            )
+                          ]
+                        ),
+                         r("div",
+                           a6,
+                           [r("div",
+                               { class: M(["hai-fill",
+                                   h.pnl >= 0 ? "up" : "down"
+                                ]
+                              ),
+                               style: Pe({ width: Math.abs(h.pnl
+                                ) / 20 * 100 + "%" }
+                              ) },
+                               null,
+                               6
+                            )
+                          ]
+                        ),
+                         r("div",
+                           r6,
+                           [r("span",
+                               null,
+                               "成本 " + v(Lt(h.cost
+                                )
+                              ) + " · " + v(h.shares
+                              ) + "股",
+                               1
+                            ),
+                             r("span",
+                               null,
+                               "占比 " + v(h.weight.toFixed(1
+                                )
+                              ) + "%",
+                               1
+                            )
+                          ]
+                        )
+                      ]
+                    )
+                  )
+                ),
+                 128
+              )
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       Array.isArray(Ei.value
+      ) && Ei.value.length ? (g(
+        ),
+         b("div",
+           c6,
+           [r("div",
+               u6,
+               [o[231
+                ] || (o[231
+                  ] = K("📝 交易日志 ",
+                     -1
+                  )
+                ),
+                 r("button",
+                   { class: "aa-btn",
+                   style: { float: "right",
+                   "font-size": "12px" },
+                   onClick: o[98
+                  ] || (o[98
+                    ] = (h
+                    ) => da.value = !da.value
+                  ) },
+                   v(da.value ? "收起" : "+记一笔"
+                  ),
+                   1
+                )
+              ]
+            ),
+             da.value ? (g(
+              ),
+               b("div",
+                 h6,
+                 [de(r("input",
+                       { class: "hm-input",
+                       "onUpdate:modelValue": o[99
+                      ] || (o[99
+                        ] = (h
+                        ) => hs.stock = h
+                      ),
+                       placeholder: "股票名称",
+                       style: { width: "100px" } },
+                       null,
+                       512
+                    ),
+                     [[Ne,
+                         hs.stock
+                      ]
+                    ]
+                  ),
+                   de(r("select",
+                       { class: "aa-sel",
+                       "onUpdate:modelValue": o[100
+                      ] || (o[100
+                        ] = (h
+                        ) => hs.type = h
+                      ) },
+                       [...o[232
+                        ] || (o[232
+                          ] = [r("option",
+                               { value: "buy" },
+                               "买入",
+                               -1
+                            ),
+                             r("option",
+                               { value: "sell" },
+                               "卖出",
+                               -1
+                            )
+                          ]
+                        )
+                      ],
+                       512
+                    ),
+                     [[fl,
+                         hs.type
+                      ]
+                    ]
+                  ),
+                   de(r("input",
+                       { class: "hm-input",
+                       "onUpdate:modelValue": o[101
+                      ] || (o[101
+                        ] = (h
+                        ) => hs.price = h
+                      ),
+                       placeholder: "价格",
+                       type: "number",
+                       step: "0.01",
+                       style: { width: "70px" } },
+                       null,
+                       512
+                    ),
+                     [[Ne,
+                         hs.price,
+                         void 0,
+                         { number: true }
+                      ]
+                    ]
+                  ),
+                   de(r("input",
+                       { class: "hm-input",
+                       "onUpdate:modelValue": o[102
+                      ] || (o[102
+                        ] = (h
+                        ) => hs.shares = h
+                      ),
+                       placeholder: "股数",
+                       type: "number",
+                       style: { width: "60px" } },
+                       null,
+                       512
+                    ),
+                     [[Ne,
+                         hs.shares,
+                         void 0,
+                         { number: true }
+                      ]
+                    ]
+                  ),
+                   de(r("input",
+                       { class: "hm-input",
+                       "onUpdate:modelValue": o[103
+                      ] || (o[103
+                        ] = (h
+                        ) => hs.note = h
+                      ),
+                       placeholder: "备注(可选)",
+                       style: { flex: "1" } },
+                       null,
+                       512
+                    ),
+                     [[Ne,
+                         hs.note
+                      ]
+                    ]
+                  ),
+                   r("button",
+                     { class: "aa-btn",
+                     onClick: Cg },
+                     "保存"
+                  )
+                ]
+              )
+            ) : E("",
+               true
+            ),
+             (g(true
+              ),
+               b(J,
+                 null,
+                 vt(Sg.value.slice(0,
+                     20
+                  ),
+                   (h
+                  ) => (g(
+                    ),
+                     b("div",
+                       { class: "trade-item",
+                       key: h.id },
+                       [r("span",
+                           d6,
+                           v(h.date
+                          ),
+                           1
+                        ),
+                         r("span",
+                           { class: M(h.type === "buy" ? "up" : "down"
+                          ) },
+                           v(h.type === "buy" ? "买" : "卖"
+                          ),
+                           3
+                        ),
+                         r("span",
+                           null,
+                           v(h.stock
+                          ),
+                           1
+                        ),
+                         r("span",
+                           null,
+                           v(Lt(h.price
+                            )
+                          ) + " × " + v(h.shares
+                          ) + "股",
+                           1
+                        ),
+                         h.note ? (g(
+                          ),
+                           b("span",
+                             f6,
+                             v(h.note
+                            ),
+                             1
+                          )
+                        ) : E("",
+                           true
+                        ),
+                         r("button",
+                           { class: "al-del",
+                           onClick: (q
+                          ) => Mg(h.id
+                          ) },
+                           "×",
+                           8,
+                           v6
+                        )
+                      ]
+                    )
+                  )
+                ),
+                 128
+              )
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       Vl.value ? (g(
+        ),
+         b("div",
+           { key: 6,
+           class: "hold-modal",
+           onClick: js(_h,
+             ["self"
+            ]
+          ) },
+           [r("div",
+               p6,
+               [r("div",
+                   m6,
+                   v(us.value ? "添加持仓" : "搜索股票"
+                  ),
+                   1
+                ),
+                 us.value ? E("",
+                   true
+                ) : de((g(
+                    ),
+                     b("input",
+                       { key: 0,
+                       class: "hm-input",
+                       "onUpdate:modelValue": o[104
+                      ] || (o[104
+                        ] = (h
+                        ) => Bl.value = h
+                      ),
+                       placeholder: "输入代码或名称",
+                       onInput: dg },
+                       null,
+                       544
+                    )
+                  ),
+                   [[Ne,
+                       Bl.value
+                    ]
+                  ]
+                ),
+                 !us.value && gn.value.length ? (g(
+                  ),
+                   b("div",
+                     g6,
+                     [(g(true
+                        ),
+                         b(J,
+                           null,
+                           vt(gn.value,
+                             (h
+                            ) => (g(
+                              ),
+                               b("div",
+                                 { class: "hmr-item",
+                                 key: h.secid,
+                                 onClick: (q
+                                ) => fg(h
+                                ) },
+                                 [r("span",
+                                     null,
+                                     v(h.name
+                                    ),
+                                     1
+                                  ),
+                                   r("span",
+                                     y6,
+                                     v(h.code
+                                    ),
+                                     1
+                                  )
+                                ],
+                                 8,
+                                 b6
+                              )
+                            )
+                          ),
+                           128
+                        )
+                      )
+                    ]
+                  )
+                ) : E("",
+                   true
+                ),
+                 us.value ? (g(
+                  ),
+                   b("div",
+                     _6,
+                     [r("div",
+                         w6,
+                         [o[233
+                          ] || (o[233
+                            ] = r("span",
+                               null,
+                               "股票",
+                               -1
+                            )
+                          ),
+                           r("b",
+                             null,
+                             v(us.value.name
+                            ) + " " + v(us.value.code
+                            ),
+                             1
+                          )
+                        ]
+                      ),
+                       r("div",
+                         k6,
+                         [o[234
+                          ] || (o[234
+                            ] = r("span",
+                               null,
+                               "股数",
+                               -1
+                            )
+                          ),
+                           de(r("input",
+                               { class: "hm-input",
+                               "onUpdate:modelValue": o[105
+                              ] || (o[105
+                                ] = (h
+                                ) => we.shares = h
+                              ),
+                               type: "number",
+                               placeholder: "如 1000" },
+                               null,
+                               512
+                            ),
+                             [[Ne,
+                                 we.shares,
+                                 void 0,
+                                 { number: true }
+                              ]
+                            ]
+                          )
+                        ]
+                      ),
+                       r("div",
+                         S6,
+                         [o[235
+                          ] || (o[235
+                            ] = r("span",
+                               null,
+                               "成本价",
+                               -1
+                            )
+                          ),
+                           de(r("input",
+                               { class: "hm-input",
+                               "onUpdate:modelValue": o[106
+                              ] || (o[106
+                                ] = (h
+                                ) => we.cost = h
+                              ),
+                               type: "number",
+                               step: "0.01",
+                               placeholder: "如 4.50" },
+                               null,
+                               512
+                            ),
+                             [[Ne,
+                                 we.cost,
+                                 void 0,
+                                 { number: true }
+                              ]
+                            ]
+                          )
+                        ]
+                      ),
+                       r("button",
+                         { class: "ha-btn ha-add",
+                         style: { width: "100%",
+                         "margin-top": "8px" },
+                         onClick: vg,
+                         disabled: !we.shares || !we.cost },
+                         "确认添加",
+                         8,
+                         x6
+                      ),
+                       r("button",
+                         { class: "ha-btn",
+                         style: { width: "100%",
+                         "margin-top": "4px",
+                         background: "rgba(48,54,61,0.3)",
+                         color: "#8b949e" },
+                         onClick: _h },
+                         "取消"
+                      )
+                    ]
+                  )
+                ) : E("",
+                   true
+                )
+              ]
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       r("div",
+         C6,
+         [o[236
+          ] || (o[236
+            ] = r("span",
+               null,
+               "💰 可用现金",
+               -1
+            )
+          ),
+           de(r("input",
+               { class: "hm-input",
+               style: { width: "120px",
+               "text-align": "right" },
+               "onUpdate:modelValue": o[107
+              ] || (o[107
+                ] = (h
+                ) => Yi.value = h
+              ),
+               type: "number",
+               placeholder: "0",
+               onChange: yh },
+               null,
+               544
+            ),
+             [[Ne,
+                 Yi.value,
+                 void 0,
+                 { number: true }
+              ]
+            ]
+          ),
+           o[237
+          ] || (o[237
+            ] = r("span",
+               null,
+               "元",
+               -1
+            )
+          )
+        ]
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ Xi.value ? (g(
+  ),
+   b("div",
+     M6,
+     [r("span",
+         null,
+         "已选 " + v(ui.value.length
+        ) + "/5 只",
+         1
+      ),
+       r("button",
+         { onClick: dm,
+         disabled: ui.value.length < 2 },
+         "⚔️ 开始对比",
+         8,
+         $6
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ st.value !== "zt" && st.value !== "hold" && st.value !== "strategy" && st.value !== "overview" && st.value !== "predict" ? (g(
+  ),
+   b("div",
+     { key: 17,
+     class: "list",
+     ref_key: "listRef",
+     ref: $t,
+     onScroll: im },
+     [(g(true
+        ),
+         b(J,
+           null,
+           vt(te.value,
+             (h
+            ) => (g(
+              ),
+               b("div",
+                 { class: "row",
+                 key: h.secid,
+                 onClick: (q
+                ) => Xn(h
+                ) },
+                 [r("div",
+                     E6,
+                     [r("span",
+                         { class: "row-star",
+                         onClick: js((q
+                          ) => Xr(h
+                          ),
+                           ["stop"
+                          ]
+                        ) },
+                         v(Qt(h
+                          ) ? "★" : "☆"
+                        ),
+                         9,
+                         R6
+                      ),
+                       Xi.value ? (g(
+                        ),
+                         b("span",
+                           z6,
+                           v(ui.value.includes(h.secid
+                            ) ? "☑" : "☐"
+                          ),
+                           1
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       r("span",
+                         L6,
+                         v(h.name
+                        ),
+                         1
+                      ),
+                       Gt(h
+                      ) ? (g(
+                        ),
+                         b("span",
+                           { key: 1,
+                           class: M(["row-board",
+                               "bd-" + Gt(h
+                              ).board
+                            ]
+                          ) },
+                           v(Gt(h
+                            ).board
+                          ),
+                           3
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       r("span",
+                         D6,
+                         v(h.code
+                        ),
+                         1
+                      ),
+                       jt.value[h.code
+                      ] ? (g(
+                        ),
+                         b("span",
+                           { key: 2,
+                           class: "row-pred",
+                           onClick: o[108
+                          ] || (o[108
+                            ] = js((q
+                              ) => Ti("predict"
+                              ),
+                               ["stop"
+                              ]
+                            )
+                          ),
+                           title: "预测得分 " + jt.value[h.code
+                          ].score },
+                           v(Ue(jt.value[h.code
+                              ],
+                               "sig_leader"
+                            ) ? "👑" : "🔮"
+                          ) + v(jt.value[h.code
+                            ].score
+                          ) + "分",
+                           9,
+                           P6
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       um.value && h.stage ? (g(
+                        ),
+                         b("span",
+                           { key: 3,
+                           class: M(["row-stage",
+                               "st-" + h.stage
+                            ]
+                          ) },
+                           v(Lr(h.stage
+                            )
+                          ),
+                           3
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       Ss.value === "score" ? (g(
+                        ),
+                         b("span",
+                           { key: 4,
+                           class: M(["row-score",
+                               Os(h
+                              )
+                            ]
+                          ) },
+                           v(rs(h
+                            )
+                          ),
+                           3
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       r("span",
+                         { class: M(["row-price",
+                             Pt(h.change_pct
+                            )
+                          ]
+                        ) },
+                         v(Lt(h.price
+                          )
+                        ),
+                         3
+                      ),
+                       r("span",
+                         { class: M(["row-pct",
+                             Pt(h.change_pct
+                            )
+                          ]
+                        ) },
+                         v(Qe(h.change_pct
+                          )
+                        ),
+                         3
+                      ),
+                       at.value === "fav" ? (g(
+                        ),
+                         b("span",
+                           { key: 5,
+                           class: "row-hold",
+                           onClick: js((q
+                            ) => Nm(h
+                            ),
+                             ["stop"
+                            ]
+                          ),
+                           title: "加持仓" },
+                           "💼",
+                           8,
+                           O6
+                        )
+                      ) : E("",
+                         true
+                      ),
+                       h.todayWarn ? (g(
+                        ),
+                         b("span",
+                           A6,
+                           v(h.todayWarn
+                          ),
+                           1
+                        )
+                      ) : E("",
+                         true
+                      )
+                    ]
+                  ),
+                   Ge.value.length ? (g(
+                    ),
+                     b("div",
+                       N6,
+                       [(g(true
+                          ),
+                           b(J,
+                             null,
+                             vt(Ge.value,
+                               (q,
+                                 Ms
+                              ) => (g(
+                                ),
+                                 b("span",
+                                   { class: "row-metric",
+                                   key: q.key },
+                                   v(q.label
+                                  ) + " " + v(sm(h,
+                                       q.key
+                                    )
+                                  ),
+                                   1
+                                )
+                              )
+                            ),
+                             128
+                          )
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  ),
+                   h.scoreItems ? (g(
+                    ),
+                     b("div",
+                       I6,
+                       [r("span",
+                           F6,
+                           "🎯 " + v(h.techScore
+                          ) + "/" + v(h.scoreMax || "--"
+                          ),
+                           1
+                        ),
+                         (g(true
+                          ),
+                           b(J,
+                             null,
+                             vt(h.scoreItems.slice(0,
+                                 4
+                              ),
+                               (q
+                              ) => (g(
+                                ),
+                                 b("span",
+                                   { class: M(["rs-item",
+                                       { ok: q.ok,
+                                       fail: !q.ok }
+                                    ]
+                                  ),
+                                   key: q.label },
+                                   v(q.ok ? "✅" : "⬜"
+                                  ) + v(q.label
+                                  ),
+                                   3
+                                )
+                              )
+                            ),
+                             128
+                          )
+                        )
+                      ]
+                    )
+                  ) : E("",
+                     true
+                  )
+                ],
+                 8,
+                 T6
+              )
+            )
+          ),
+           128
+        )
+      ),
+       z.value ? (g(
+        ),
+         b("div",
+           V6,
+           [o[238
+            ] || (o[238
+              ] = r("span",
+                 { class: "ld-spinner" },
+                 null,
+                 -1
+              )
+            ),
+             K(v(j.value
+              ),
+               1
+            )
+          ]
+        )
+      ) : te.value.length ? at.value === "all" && ot.value ? (g(
+        ),
+         b("div",
+           j6,
+           "— 已加载全部 " + v(ee.value
+          ) + " 条 —",
+           1
+        )
+      ) : E("",
+         true
+      ) : (g(
+        ),
+         b("div",
+           B6,
+           [Fs.value ? (g(
+              ),
+               b(J,
+                 { key: 0 },
+                 [K("RSI 筛选无结果：" + v(Fs.value === "os" ? "RSI<30 超卖票在当前行情较少（普涨日动量偏高）" : Fs.value === "ob" ? "RSI6>80 超买强势票" : "RSI 30-60 中位票"
+                    ) + "——可切换其他档",
+                     1
+                  )
+                ],
+                 64
+              )
+            ) : (g(
+              ),
+               b(J,
+                 { key: 1 },
+                 [K(v(at.value === "fav" ? "该分类还没有关注，点列表行 ☆ 添加" : "暂无数据"
+                    ),
+                     1
+                  )
+                ],
+                 64
+              )
+            )
+          ]
+        )
+      )
+    ],
+     544
+  )
+) : E("",
+   true
+)
+]
+)
+) : 

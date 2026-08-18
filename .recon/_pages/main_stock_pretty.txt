@@ -1,0 +1,706 @@
+at.value === "all" && st.value !== "zt" && st.value !== "hold" && st.value !== "strategy" && st.value !== "overview" && st.value !== "predict" ? 
+(g(
+  ),
+   b("div",
+     sM,
+     [r("div",
+         iM,
+         [o[196
+          ] || (o[196
+            ] = r("span",
+               { class: "fb-label" },
+               "排序",
+               -1
+            )
+          ),
+           (g(
+            ),
+             b(J,
+               null,
+               vt(Fe,
+                 (h
+                ) => r("span",
+                   { key: h.key,
+                   class: M(["fb-chip",
+                       { on: !Ge.value.length && Ss.value === h.key }
+                    ]
+                  ),
+                   onClick: (q
+                  ) => Ft(h.key
+                  ) },
+                   v(h.label
+                  ),
+                   11,
+                   nM
+                )
+              ),
+               64
+            )
+          )
+        ]
+      ),
+       r("div",
+         lM,
+         [o[197
+          ] || (o[197
+            ] = r("span",
+               { class: "fb-label" },
+               "筛选",
+               -1
+            )
+          ),
+           (g(
+            ),
+             b(J,
+               null,
+               vt(Ps,
+                 (h
+                ) => r("span",
+                   { key: h.key,
+                   class: M(["fb-chip",
+                       { on: Yt.value === h.key }
+                    ]
+                  ),
+                   onClick: (q
+                  ) => Ve(h.key
+                  ) },
+                   v(h.label
+                  ),
+                   11,
+                   oM
+                )
+              ),
+               64
+            )
+          ),
+           r("span",
+             { class: M(["fb-chip metric",
+                 { on: Ge.value.length }
+              ]
+            ),
+             onClick: o[86
+            ] || (o[86
+              ] = (h
+              ) => Zs.value = true
+            ) },
+             "⚙ 指标",
+             2
+          )
+        ]
+      ),
+       st.value === "stock" ? (g(
+        ),
+         b("div",
+           aM,
+           [o[198
+            ] || (o[198
+              ] = r("span",
+                 { class: "fb-label" },
+                 "RSI",
+                 -1
+              )
+            ),
+             r("span",
+               { class: M(["fb-chip",
+                   { on: Fs.value === "" }
+                ]
+              ),
+               onClick: o[87
+              ] || (o[87
+                ] = (h
+                ) => Ot(""
+                )
+              ) },
+               "全部",
+               2
+            ),
+             r("span",
+               { class: M(["fb-chip",
+                   { on: Fs.value === "os" }
+                ]
+              ),
+               onClick: o[88
+              ] || (o[88
+                ] = (h
+                ) => Ot("os"
+                )
+              ) },
+               "超卖<30",
+               2
+            ),
+             r("span",
+               { class: M(["fb-chip",
+                   { on: Fs.value === "ob" }
+                ]
+              ),
+               onClick: o[89
+              ] || (o[89
+                ] = (h
+                ) => Ot("ob"
+                )
+              ) },
+               "超买>80",
+               2
+            ),
+             r("span",
+               { class: M(["fb-chip",
+                   { on: Fs.value === "mid" }
+                ]
+              ),
+               onClick: o[90
+              ] || (o[90
+                ] = (h
+                ) => Ot("mid"
+                )
+              ) },
+               "中位30-60",
+               2
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       st.value === "stock" ? (g(
+        ),
+         b("div",
+           rM,
+           [o[199
+            ] || (o[199
+              ] = r("span",
+                 { class: "fb-label" },
+                 "板块",
+                 -1
+              )
+            ),
+             (g(
+              ),
+               b(J,
+                 null,
+                 vt(Ee,
+                   (h
+                  ) => r("span",
+                     { key: h.key,
+                     class: M(["fb-chip",
+                         { on: ve.value === h.key }
+                      ]
+                    ),
+                     onClick: (q
+                    ) => Xe(h.key
+                    ) },
+                     v(h.label
+                    ),
+                     11,
+                     cM
+                  )
+                ),
+                 64
+              )
+            )
+          ]
+        )
+      ) : E("",
+         true
+      ),
+       Ge.value.length ? (g(
+        ),
+         b("div",
+           uM,
+           [(g(true
+              ),
+               b(J,
+                 null,
+                 vt(Ge.value,
+                   (h
+                  ) => (g(
+                    ),
+                     b("span",
+                       { class: "fb-chip on",
+                       key: h.key },
+                       v(h.label
+                      ) + "：" + v(h.condLabel
+                      ),
+                       1
+                    )
+                  )
+                ),
+                 128
+              )
+            ),
+             r("span",
+               { class: "fb-chip clear",
+               onClick: em },
+               "✕ 清除"
+            )
+          ]
+        )
+      ) : E("",
+         true
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ st.value !== "zt" && st.value !== "hold" && st.value !== "strategy" && st.value !== "overview" && st.value !== "predict" ? (g(
+  ),
+   b("div",
+     hM,
+     [r("button",
+         { class: M({ active: at.value === "all" }
+        ),
+         onClick: o[91
+        ] || (o[91
+          ] = (h
+          ) => at.value = "all"
+        ) },
+         "全量 (" + v(ee.value
+        ) + ")",
+         3
+      ),
+       r("button",
+         { class: M({ active: at.value === "fav" }
+        ),
+         onClick: o[92
+        ] || (o[92
+          ] = (h
+          ) => at.value = "fav"
+        ) },
+         "关注 (" + v(Kt.value.length
+        ) + ")",
+         3
+      ),
+       at.value === "fav" ? (g(
+        ),
+         b("button",
+           { key: 0,
+           class: M(["cmp-btn",
+               { on: Xi.value }
+            ]
+          ),
+           onClick: hm },
+           v(Xi.value ? "✕ 取消" : "⚔️ 对比"
+          ),
+           3
+        )
+      ) : E("",
+         true
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ st.value === "index" && at.value === "all" && Ut.value.length ? (g(
+  ),
+   b("div",
+     dM,
+     [(g(true
+        ),
+         b(J,
+           null,
+           vt(Ut.value,
+             (h
+            ) => (g(
+              ),
+               b("div",
+                 { class: "idx-card",
+                 key: h.code,
+                 onClick: (q
+                ) => Si({ ...h,
+                   type: "index" }
+                ) },
+                 [r("div",
+                     vM,
+                     v(h.name
+                    ),
+                     1
+                  ),
+                   r("div",
+                     { class: M(["ic-price",
+                         Pt(h.change_pct
+                        )
+                      ]
+                    ) },
+                     v(Lt(h.price
+                      )
+                    ),
+                     3
+                  ),
+                   r("div",
+                     { class: M(["ic-chg",
+                         Pt(h.change_pct
+                        )
+                      ]
+                    ) },
+                     v(Qe(h.change_pct
+                      )
+                    ),
+                     3
+                  )
+                ],
+                 8,
+                 fM
+              )
+            )
+          ),
+           128
+        )
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ st.value === "fund" ? (g(
+  ),
+   b("div",
+     pM,
+     [r("div",
+         mM,
+         [o[203
+          ] || (o[203
+            ] = r("div",
+               { class: "fund-card-title" },
+               [K("🏦 大盘主力资金 "
+                ),
+                 r("em",
+                   { class: "sec-sub" },
+                   "今日全市场主力净流入"
+                )
+              ],
+               -1
+            )
+          ),
+           r("div",
+             gM,
+             [r("div",
+                 bM,
+                 [o[200
+                  ] || (o[200
+                    ] = r("span",
+                       null,
+                       "沪市",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M(Pt(G.value.sh
+                      )
+                    ) },
+                     v(ae(G.value.sh
+                      )
+                    ),
+                     3
+                  )
+                ]
+              ),
+               r("div",
+                 yM,
+                 [o[201
+                  ] || (o[201
+                    ] = r("span",
+                       null,
+                       "深市",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M(Pt(G.value.sz
+                      )
+                    ) },
+                     v(ae(G.value.sz
+                      )
+                    ),
+                     3
+                  )
+                ]
+              ),
+               r("div",
+                 _M,
+                 [o[202
+                  ] || (o[202
+                    ] = r("span",
+                       null,
+                       "合计",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M([Pt(et.value
+                        ),
+                         "fund-total"
+                      ]
+                    ) },
+                     v(ae(et.value
+                      )
+                    ),
+                     3
+                  )
+                ]
+              )
+            ]
+          )
+        ]
+      ),
+       r("div",
+         wM,
+         [o[207
+          ] || (o[207
+            ] = r("div",
+               { class: "fund-card-title" },
+               [K("🌏 北向资金 "
+                ),
+                 r("em",
+                   { class: "sec-sub" },
+                   "外资动向 · 聪明钱"
+                )
+              ],
+               -1
+            )
+          ),
+           r("div",
+             kM,
+             [r("div",
+                 SM,
+                 [o[204
+                  ] || (o[204
+                    ] = r("span",
+                       null,
+                       "沪股通",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M(Pt(it.value.sh
+                      )
+                    ) },
+                     v(ae(it.value.sh
+                      )
+                    ),
+                     3
+                  )
+                ]
+              ),
+               r("div",
+                 xM,
+                 [o[205
+                  ] || (o[205
+                    ] = r("span",
+                       null,
+                       "深股通",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M(Pt(it.value.sz
+                      )
+                    ) },
+                     v(ae(it.value.sz
+                      )
+                    ),
+                     3
+                  )
+                ]
+              ),
+               r("div",
+                 CM,
+                 [o[206
+                  ] || (o[206
+                    ] = r("span",
+                       null,
+                       "南向",
+                       -1
+                    )
+                  ),
+                   r("b",
+                     { class: M(Pt(it.value.hk
+                      )
+                    ) },
+                     v(ae(it.value.hk
+                      )
+                    ),
+                     3
+                  )
+                ]
+              )
+            ]
+          )
+        ]
+      ),
+       r("div",
+         MM,
+         [o[208
+          ] || (o[208
+            ] = r("div",
+               { class: "fund-card-title" },
+               [K("🏭 行业板块主力 "
+                ),
+                 r("em",
+                   { class: "sec-sub" },
+                   "按主力净流入排行 · 点板块看成分股"
+                )
+              ],
+               -1
+            )
+          ),
+           (g(true
+            ),
+             b(J,
+               null,
+               vt(L.value,
+                 (h
+                ) => (g(
+                  ),
+                   b("div",
+                     { class: "fund-row",
+                     key: h.code,
+                     onClick: (q
+                    ) => la(h
+                    ) },
+                     [r("span",
+                         TM,
+                         v(h.name
+                        ),
+                         1
+                      ),
+                       r("div",
+                         EM,
+                         [r("div",
+                             { class: M(["fr-fill",
+                                 h.flow >= 0 ? "in" : "out"
+                              ]
+                            ),
+                             style: Pe({ width: _t(h.flow,
+                                 L.value
+                              ) }
+                            ) },
+                             null,
+                             6
+                          )
+                        ]
+                      ),
+                       r("span",
+                         { class: M(["fr-flow",
+                             Pt(h.flow
+                            )
+                          ]
+                        ) },
+                         v(ae(h.flow
+                          )
+                        ),
+                         3
+                      ),
+                       r("span",
+                         { class: M(["fr-pct",
+                             Pt(h.change_pct
+                            )
+                          ]
+                        ) },
+                         v(Qe(h.change_pct
+                          )
+                        ),
+                         3
+                      )
+                    ],
+                     8,
+                     $M
+                  )
+                )
+              ),
+               128
+            )
+          )
+        ]
+      ),
+       r("div",
+         RM,
+         [o[209
+          ] || (o[209
+            ] = r("div",
+               { class: "fund-card-title" },
+               [K("💡 概念板块主力 "
+                ),
+                 r("em",
+                   { class: "sec-sub" },
+                   "题材热钱去向"
+                )
+              ],
+               -1
+            )
+          ),
+           (g(true
+            ),
+             b(J,
+               null,
+               vt(H.value,
+                 (h
+                ) => (g(
+                  ),
+                   b("div",
+                     { class: "fund-row",
+                     key: h.code,
+                     onClick: (q
+                    ) => la(h
+                    ) },
+                     [r("span",
+                         LM,
+                         v(h.name
+                        ),
+                         1
+                      ),
+                       r("div",
+                         DM,
+                         [r("div",
+                             { class: M(["fr-fill",
+                                 h.flow >= 0 ? "in" : "out"
+                              ]
+                            ),
+                             style: Pe({ width: _t(h.flow,
+                                 H.value
+                              ) }
+                            ) },
+                             null,
+                             6
+                          )
+                        ]
+                      ),
+                       r("span",
+                         { class: M(["fr-flow",
+                             Pt(h.flow
+                            )
+                          ]
+                        ) },
+                         v(ae(h.flow
+                          )
+                        ),
+                         3
+                      ),
+                       r("span",
+                         { class: M(["fr-pct",
+                             Pt(h.change_pct
+                            )
+                          ]
+                        ) },
+                         v(Qe(h.change_pct
+                          )
+                        ),
+                         3
+                      )
+                    ],
+                     8,
+                     zM
+                  )
+                )
+              ),
+               128
+            )
+          )
+        ]
+      )
+    ]
+  )
+) : E("",
+   true
+),
+ 
