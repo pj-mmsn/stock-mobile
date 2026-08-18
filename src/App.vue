@@ -989,7 +989,7 @@
 
     <!-- ========== 底部导航 ========== -->
     <div class="nav-bar">
-      <button v-for="v in navs" :key="v.key" :class="['nav-btn', { on: view === v.key || (v.key === 'home' && view === 'detail') }]" @click="goNav(v.key)">{{ v.icon }}<span>{{ v.label }}</span></button>
+      <button v-for="v in navs" :key="v.key" :class="['nav-btn', { on: (view === v.key) || (view === 'home' && st === v.key && ['stock', 'zt', 'hold'].includes(v.key)) || (v.key === 'stock' && view === 'detail') }]" @click="goNav(v.key)">{{ v.icon }}<span>{{ v.label }}</span></button>
     </div>
 
     <!-- 指标筛选弹层 -->
@@ -2580,15 +2580,22 @@ async function goSector(s) {
 }
 const compareItems = ref([])
 const navs = [
-  { key: 'home', label: '首页', icon: '🏠' },
   { key: 'overview', label: '总览', icon: '📊' },
   { key: 'predict', label: '预测', icon: '🔮' },
+  { key: 'stock', label: '股票', icon: '📋' },
+  { key: 'zt', label: '涨停', icon: '🔥' },
+  { key: 'hold', label: '持仓', icon: '💼' },
   { key: 'backtest', label: '回测', icon: '🧪' },
 ]
 function goNav(k) {
+  if (k === 'stock' || k === 'zt' || k === 'hold') {
+    view.value = 'home'
+    st.value = k
+    switchCat(k)
+    return
+  }
   view.value = k
-  if (k === 'home') { loadList(1); loadMarket() }
-  else if (k === 'overview') { loadRealtime(); loadOverview() }
+  if (k === 'overview') { loadRealtime(); loadOverview() }
   else if (k === 'predict') { loadPredict(); loadRealtime() }
   else if (k === 'backtest') {}
 }
