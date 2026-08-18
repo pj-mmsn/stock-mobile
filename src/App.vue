@@ -1,6 +1,32 @@
 <template>
   <div class="app">
-    <!-- ========== 顶部主导航（v55 cat-tabs：6 主 tab，主视图显示） ========== -->
+    <!-- ========== 全局顶部（v55：header → 主 tab 导航） ========== -->
+    <header v-if="['home', 'overview', 'predict', 'backtest'].includes(view)" class="hdr main-hdr">
+      <div class="logo">📈 手机看盘 <span class="ver-tag">{{ ver }}</span></div>
+      <button class="set-btn bell" :class="{ on: alerts.filter(a => !a.triggered).length }" @click="showAlerts = true">🔔</button>
+      <button class="set-btn" @click="showSettings = true">⚙️</button>
+    </header>
+    <!-- 市场温度 + 指数条（v55：位于主 tab 上方） -->
+    <div v-if="['home', 'overview', 'predict', 'backtest'].includes(view)" class="top-strip">
+<!-- 市场温度 -->
+        <div class="fund-temp">
+          <div class="ft-main">
+            <span class="fb-note" v-if="marketTemp?.note">{{ marketTemp.note }}</span>
+            <span class="ft-tip">{{ tempText }}</span>
+          </div>
+        </div>
+
+        <!-- 指数条 -->
+        <div class="market-strip">
+          <div class="ms-row">
+            <div class="ms-item"><span>沪</span><span :class="['ms-num', indices.sh >= 0 ? 'up' : 'down']">{{ fmtPct(indices.sh) }}</span></div>
+            <div class="ms-item"><span>深</span><span :class="['ms-num', indices.sz >= 0 ? 'up' : 'down']">{{ fmtPct(indices.sz) }}</span></div>
+            <div class="ms-item"><span>恒</span><span :class="['ms-num', indices.hk >= 0 ? 'up' : 'down']">{{ fmtPct(indices.hk) }}</span></div>
+            <div class="ms-item"><span class="ms-bar">{{ marketText }}</span></div>
+          </div>
+        </div>
+    </div>
+
     <div v-if="['home', 'overview', 'predict', 'backtest'].includes(view)" class="cat-tabs main-tabs">
       <span v-for="c in navs" :key="c.key" :class="['ct', { on: (view === c.key) || (view === 'home' && st === c.key && ['stock', 'zt', 'hold'].includes(c.key)) }]" @click="goNav(c.key)">{{ c.icon }} {{ c.label }}</span>
     </div>
@@ -8,12 +34,6 @@
     <transition name="page-fade">
       <!-- ================= 主页 ================= -->
       <div v-if="view === 'home'" class="home">
-        <header class="hdr">
-          <div class="logo">📈 手机看盘 <span class="ver-tag">{{ ver }}</span></div>
-          <button class="set-btn bell" :class="{ on: alerts.filter(a => !a.triggered).length }" @click="showAlerts = true">🔔</button>
-          <button class="set-btn" @click="showSettings = true">⚙️</button>
-        </header>
-
         <!-- 预警弹层 -->
         <div v-if="showAlerts" class="modal-overlay" @click.self="showAlerts = false">
           <div class="modal sheet alerts-modal">
@@ -46,24 +66,6 @@
             <div v-for="r in searchResults" :key="r.secid" class="sr-item" @click="openStock(r)">
               <span class="sr-name">{{ r.name }}</span><span class="sr-code">{{ r.code }}</span><span class="sr-type">{{ r.type }}</span>
             </div>
-          </div>
-        </div>
-
-        <!-- 市场温度 -->
-        <div class="fund-temp">
-          <div class="ft-main">
-            <span class="fb-note" v-if="marketTemp?.note">{{ marketTemp.note }}</span>
-            <span class="ft-tip">{{ tempText }}</span>
-          </div>
-        </div>
-
-        <!-- 指数条 -->
-        <div class="market-strip">
-          <div class="ms-row">
-            <div class="ms-item"><span>沪</span><span :class="['ms-num', indices.sh >= 0 ? 'up' : 'down']">{{ fmtPct(indices.sh) }}</span></div>
-            <div class="ms-item"><span>深</span><span :class="['ms-num', indices.sz >= 0 ? 'up' : 'down']">{{ fmtPct(indices.sz) }}</span></div>
-            <div class="ms-item"><span>恒</span><span :class="['ms-num', indices.hk >= 0 ? 'up' : 'down']">{{ fmtPct(indices.hk) }}</span></div>
-            <div class="ms-item"><span class="ms-bar">{{ marketText }}</span></div>
           </div>
         </div>
 
@@ -246,7 +248,7 @@
 
       <!-- ================= 总览 ================= -->
       <div v-else-if="view === 'overview'" class="overview-page">
-        <div class="hdr"><span class="logo">🎯 今日重点 <span class="ver-tag">{{ ver }}</span></span></div>
+        <div class="hdr page-hdr"><span class="back" @click="view = 'home'">←</span><span class="logo">🎯 今日重点</span></div>
         <div class="ov-tabs">
           <span :class="{ on: ovTab === 'realtime' }" @click="ovTab = 'realtime'; loadRealtime()">🔴 实时机会</span>
           <span :class="{ on: ovTab === 'predict' }" @click="ovTab = 'predict'; loadOverview()">🔮 明日预测</span>
@@ -356,7 +358,7 @@
 
       <!-- ================= 预测页 ================= -->
       <div v-else-if="view === 'predict'" class="bt-page">
-        <div class="hdr"><span class="logo">🔮 预测 <span class="ver-tag">{{ ver }}</span></span></div>
+        <div class="hdr page-hdr"><span class="back" @click="view = 'home'">←</span><span class="logo">🔮 预测</span></div>
         <div class="pred-top">
           <span :class="{ on: hi === 'realtime' }" @click="hi = 'realtime'; loadRealtime()">🔴 实时机会</span>
           <span :class="{ on: hi === 'predict' }" @click="hi = 'predict'; loadPredict()">🔮 明日预测</span>
@@ -517,7 +519,7 @@
 
       <!-- ================= 回测页 ================= -->
       <div v-else-if="view === 'backtest'" class="bt-page">
-        <div class="hdr"><span class="logo">🧪 策略回测 <span class="ver-tag">{{ ver }}</span></span></div>
+        <div class="hdr page-hdr"><span class="back" @click="view = 'home'">←</span><span class="logo">🧪 策略回测</span></div>
         <div class="bt-strategies">
           <span v-for="s in strategies" :key="s.key" :class="['bt-chip', { on: btStrategy === s.key }]" @click="btStrategy = s.key">{{ s.icon }} {{ s.name }}</span>
         </div>
