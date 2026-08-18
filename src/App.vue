@@ -1,5 +1,10 @@
 <template>
   <div class="app">
+    <!-- ========== 顶部主导航（v55 cat-tabs：6 主 tab，主视图显示） ========== -->
+    <div v-if="['home', 'overview', 'predict', 'backtest'].includes(view)" class="cat-tabs main-tabs">
+      <span v-for="c in navs" :key="c.key" :class="['ct', { on: (view === c.key) || (view === 'home' && st === c.key && ['stock', 'zt', 'hold'].includes(c.key)) }]" @click="goNav(c.key)">{{ c.icon }} {{ c.label }}</span>
+    </div>
+
     <transition name="page-fade">
       <!-- ================= 主页 ================= -->
       <div v-if="view === 'home'" class="home">
@@ -82,9 +87,9 @@
           <span class="wa-icon">🔥</span><span class="wa-name">{{ w.name }}</span><span class="wa-reason">{{ w.reason }}</span>
         </div>
 
-        <!-- 分类 tab -->
-        <div class="cat-tabs">
-          <span v-for="c in cats" :key="c.key" :class="['ct', { on: st === c.key }]" @click="switchCat(c.key)">{{ c.label }}</span>
+        <!-- 股票页内次 tab（v55：股票页内嵌 龙虎榜/资金） -->
+        <div v-if="st === 'stock' || st === 'lhb' || st === 'fund'" class="cat-tabs sub-tabs">
+          <span v-for="c in subCats" :key="c.key" :class="['ct', { on: st === c.key }]" @click="switchCat(c.key)">{{ c.label }}</span>
         </div>
 
         <!-- 列表（排序/筛选条） -->
@@ -987,10 +992,6 @@
       </div>
     </transition>
 
-    <!-- ========== 底部导航 ========== -->
-    <div class="nav-bar">
-      <button v-for="v in navs" :key="v.key" :class="['nav-btn', { on: (view === v.key) || (view === 'home' && st === v.key && ['stock', 'zt', 'hold'].includes(v.key)) || (v.key === 'stock' && view === 'detail') }]" @click="goNav(v.key)">{{ v.icon }}<span>{{ v.label }}</span></button>
-    </div>
 
     <!-- 指标筛选弹层 -->
     <div v-if="showMetric" class="modal-mask" @click.self="showMetric = false">
@@ -1193,6 +1194,11 @@ const cats = [
   { key: 'lhb', label: '龙虎榜' },
   { key: 'hold', label: '持仓' },
   { key: 'fund', label: '资金' },
+]
+const subCats = [
+  { key: 'stock', label: '📋 股票' },
+  { key: 'lhb', label: '🐉 龙虎榜' },
+  { key: 'fund', label: '💰 资金' },
 ]
 function switchCat(k) {
   st.value = k

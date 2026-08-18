@@ -38,3 +38,10 @@
 .ind-help-list { padding: 10px 14px; max-height: 50vh; overflow-y: auto }
 .ih-item { font-size: 12px; line-height: 1.6; padding: 6px 0; border-bottom: 1px solid rgba(139,148,158,.1) }
 .ih-item b { color: #f0c929; margin-right: 6px }
+
+/* ===== v55 顶部主导航样式（cat-tabs 6 主 tab）===== */
+.main-tabs { position: sticky; top: 0; z-index: 60; margin: 6px 12px; }
+.main-tabs .ct, .sub-tabs .ct { flex: 1 1 0; min-width: 0; white-space: nowrap; padding: 8px 4px; background: transparent; color: #8b949e; border: none; border-radius: 9px; font-size: 12px; text-align: center; cursor: pointer; transition: all .15s; }
+.main-tabs .ct.on { background: linear-gradient(135deg, rgba(88,166,255,.22), rgba(240,201,41,.12)); color: #e6edf3; font-weight: 700 }
+.sub-tabs { margin: 4px 12px 0 }
+.sub-tabs .ct.on { color: #f0c929; font-weight: 700 }
