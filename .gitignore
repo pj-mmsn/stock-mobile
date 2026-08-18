@@ -5,5 +5,5 @@ backend/pred.db-shm
 backend/pred.db-wal
 *.log
 .DS_Store
-d/hermes
-dist-v55-backup/
+backend/__pycache__/
+.recon/_tmp_*
