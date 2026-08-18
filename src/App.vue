@@ -102,6 +102,7 @@
             <span class="fb-label">筛选</span>
             <span v-for="f in filterOpts" :key="f.key" :class="['fb-chip', { on: chgFilter === f.key }]" @click="setChg(f.key)">{{ f.label }}</span>
             <span :class="['fb-chip metric', { on: metricCount }]" @click="showMetric = true">⚙ 指标</span>
+            <span v-if="st === 'stock'" :class="['fb-chip', { on: cmpMode }]" @click="cmpMode = !cmpMode; if (!cmpMode) cmpSel = []">⚔️ 对比</span>
           </div>
           <div v-if="st === 'stock'" class="fb-row">
             <span class="fb-label">RSI</span>
@@ -120,6 +121,7 @@
         <div ref="listRef" class="list-scroll" @scroll="onListScroll">
           <div v-for="it in listItems" :key="it.secid || it.code" class="row-item" @click="openStock(it)">
             <div class="row-main">
+              <span v-if="cmpMode" class="row-cmp" @click.stop="toggleCmp(it)">{{ cmpSel.includes(it.secid || it.code) ? '☑' : '☐' }}</span>
               <div class="row-name">{{ it.name }} <span v-if="boardTag(it)" class="row-board">{{ boardTag(it).board }}</span></div>
               <div class="row-code">{{ (it.secid || it.code || '').split('.')[1] || it.code }}</div>
               <div v-if="it.price != null" class="row-price"><span :class="it.change_pct >= 0 ? 'up' : 'down'">{{ it.price.toFixed(2) }} {{ fmtPct(it.change_pct) }}</span></div>
@@ -130,6 +132,13 @@
             </div>
           </div>
           <div v-if="loadingList" class="list-loading">⏳ 加载中...</div>
+        </div>
+
+        <!-- 对比浮条（v55 cmp-bar） -->
+        <div v-if="st === 'stock' && cmpMode" class="cmp-bar">
+          <span class="cmp-bar-label">已选 {{ cmpSel.length }}/5 只</span>
+          <button class="btn-ok cmp-bar-btn" :disabled="cmpSel.length < 2" @click="openCmp">⚔️ 开始对比</button>
+          <button class="btn-ghost cmp-bar-x" @click="cmpMode = false; cmpSel = []">✕</button>
         </div>
 
         <!-- 涨停池 -->
@@ -2585,6 +2594,25 @@ async function goSector(s) {
   sectorLoading.value = false
 }
 const compareItems = ref([])
+// 对比功能（v55 row-cmp + cmp-bar：列表行勾选，最多5只）
+const cmpMode = ref(false)
+const cmpSel = ref([])
+function toggleCmp(it) {
+  const id = it.secid || it.code
+  const i = cmpSel.value.indexOf(id)
+  if (i >= 0) cmpSel.value.splice(i, 1)
+  else if (cmpSel.value.length < 5) cmpSel.value.push(id)
+}
+async function openCmp() {
+  try {
+    const items = await api.getQuotes(cmpSel.value)
+    compareItems.value = (Array.isArray(items) ? items : []).map(q => ({
+      code: String(q.code || q.secid?.split('.')[1] || ''), secid: q.secid,
+      name: q.name || q.code, price: q.price, change_pct: q.chg ?? q.change_pct, score: q.quick_score ?? null,
+    }))
+  } catch { compareItems.value = [] }
+  view.value = 'compare'
+}
 const navs = [
   { key: 'overview', label: '总览', icon: '📊' },
   { key: 'predict', label: '预测', icon: '🔮' },
