@@ -3,10 +3,14 @@
 import sys, os, time, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ⚠️ 必须最先设置：predict_server 的 DB 会被 git-bash /tmp 映射劫持（写错库）
+_BASE = os.path.dirname(os.path.abspath(__file__))
+os.environ['PRED_DB'] = os.path.join(_BASE, 'pred.db')
+
+sys.path.insert(0, _BASE)
 import predict_server as ps
 
-DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pred.db')
+DB = os.path.join(_BASE, 'pred.db')
 CUTOFF = '2026-08-17'
 
 with sqlite3.connect(DB) as c:
@@ -26,8 +30,8 @@ if not stale:
     print('[STALE] 无需补刷')
     sys.exit(0)
 
-BATCH = 50          # 每批并发数
-SLEEP = 45          # 批间休息（秒）—— 总量窗口 5min/5000，50 只/45s ≈ 3300/5min 安全
+BATCH = 25          # 每批并发数（保守——50 曾触发 5min/5000 总量限流）
+SLEEP = 60          # 批间休息（秒）—— 25 只/60s ≈ 1250/5min，安全线内
 ok = fail = 0
 t0 = time.time()
 for b in range(0, len(stale), BATCH):
