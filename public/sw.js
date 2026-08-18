@@ -1,5 +1,5 @@
 // service worker v58 —— 只缓存静态资源，不缓存 HTML 入口
-const CACHE = 'stock-mobile-v62'
+const CACHE = 'stock-mobile-v58'
 const STATIC = ['./manifest.json', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', (e) => {

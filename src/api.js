@@ -331,8 +331,8 @@ export const getPredict = async (mode = 'swing', force = false) =>
     return d && d.items && d.items.length ? d : null
   }, force)
 
-export const getRealtime = async (mode = 'swing', force = false) =>
-  _json('/api/realtime?mode=' + mode + (force ? '&force=1' : ''), { signal: AbortSignal.timeout(20000), cache: 'no-store' }).catch(() => null)
+export const getRealtime = async (mode = 'swing') =>
+  _json('/api/realtime?mode=' + mode, { signal: AbortSignal.timeout(20000), cache: 'no-store' }).catch(() => null)
 
 // 预测历史（盘前/盘后存档）
 export const getHistory = async (force = false) =>
@@ -458,6 +458,108 @@ function ema(arr, n) {
   return out
 }
 
+export function computeIndicators(kl) {
+  const closes = kl.map(k => k.close)
+  const highs = kl.map(k => k.high)
+  const lows = kl.map(k => k.low)
+  const vols = kl.map(k => k.volume)
+  const out = { ma: {}, boll: {}, macd: {}, kdj: {}, rsi: {}, volRatio: [] }
+  ;[5, 10, 20, 60, 120, 250].forEach(n => { out.ma[n] = ma(closes, n) })
+  // BOLL(20)
+  const bollN = 20
+  const bollMid = ma(closes, bollN)
+  const bollUpper = [], bollLower = []
+  for (let i = 0; i < closes.length; i++) {
+    if (i >= bollN - 1) {
+      const slice = closes.slice(i - bollN + 1, i + 1)
+      const mean = slice.reduce((s, v) => s + v, 0) / bollN
+      const sd = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / bollN)
+      bollUpper.push(mean + 2 * sd); bollLower.push(mean - 2 * sd)
+    } else { bollUpper.push(null); bollLower.push(null) }
+  }
+  out.boll = { upper: bollUpper, mid: bollMid, lower: bollLower }
+  // MACD(12,26,9)
+  const dif = ema(closes, 12).map((v, i) => v - ema(closes, 26)[i])
+  const dea = ema(dif, 9)
+  const bar = dif.map((v, i) => (v - dea[i]) * 2)
+  out.macd = { dif, dea, bar }
+  // KDJ(9)
+  const kArr = [], dArr = [], jArr = []
+  let kk = 50, dd = 50
+  for (let i = 0; i < closes.length; i++) {
+    const n9 = highs.slice(Math.max(0, i - 8), i + 1)
+    const hh = Math.max(...n9), ll = Math.min(...lows.slice(Math.max(0, i - 8), i + 1))
+    const rsv = hh > ll ? (closes[i] - ll) / (hh - ll) * 100 : 50
+    kk = 2 / 3 * kk + 1 / 3 * rsv
+    dd = 2 / 3 * dd + 1 / 3 * kk
+    kArr.push(kk); dArr.push(dd); jArr.push(3 * kk - 2 * dd)
+  }
+  out.kdj = { k: kArr, d: dArr, j: jArr }
+  // RSI(6/14)
+  const rsi = (n) => {
+    const arr = []
+    let gain = 0, loss = 0
+    for (let i = 0; i < closes.length; i++) {
+      if (i === 0) { arr.push(null); continue }
+      const chg = closes[i] - closes[i - 1]
+      if (i <= n) {
+        gain += Math.max(chg, 0); loss += Math.max(-chg, 0)
+        if (i === n) arr.push(loss === 0 ? 100 : 100 - 100 / (1 + gain / loss))
+        else arr.push(null)
+      } else {
+        gain = (gain * (n - 1) + Math.max(chg, 0)) / n
+        loss = (loss * (n - 1) + Math.max(-chg, 0)) / n
+        arr.push(loss === 0 ? 100 : 100 - 100 / (1 + gain / loss))
+      }
+    }
+    return arr
+  }
+  out.rsi = { 6: rsi(6), 14: rsi(14) }
+  // 量比（当日量/5日均量）
+  for (let i = 0; i < vols.length; i++) {
+    if (i < 5) { out.volRatio.push(null); continue }
+    const avg5 = vols.slice(i - 5, i).reduce((s, v) => s + v, 0) / 5
+    out.volRatio.push(avg5 > 0 ? vols[i] / avg5 : 1)
+  }
+  return out
+}
+
+export function computeKlineAna(kl, ind) {
+  if (!kl || kl.length < 30 || !ind) return null
+  const last = kl[kl.length - 1]
+  const closes = kl.map(k => k.close)
+  const signals = []
+  const chg20 = (last.close / closes[Math.max(0, closes.length - 21)] - 1) * 100
+  const chg5 = (last.close / closes[Math.max(0, closes.length - 6)] - 1) * 100
+  const ma5 = ind.ma[5]?.slice(-1)[0], ma10 = ind.ma[10]?.slice(-1)[0], ma20 = ind.ma[20]?.slice(-1)[0], ma60 = ind.ma[60]?.slice(-1)[0]
+  const dif = ind.macd?.dif?.slice(-1)[0], bar = ind.macd?.bar?.slice(-1)[0]
+  const rsi14 = ind.rsi?.[14]?.slice(-1)[0]
+  const vr = ind.volRatio?.slice(-1)[0] ?? 1
+  if (chg20 > 0 && chg5 > 0 && ma5 > ma20 && last.close > ma20) signals.push('sig_trend')
+  if (ma5 > ma10 && ma10 > ma20) signals.push('sig_maBull')
+  if (dif != null && dif > 0 && bar != null && bar > 0) signals.push('sig_breakH')
+  if (rsi14 != null && rsi14 < 30) signals.push('sig_volDry')
+  if (vr > 1.5) signals.push('sig_breakH')
+  if (rsi14 != null && rsi14 > 60) signals.push('sig_kdj')
+  // 支撑/阻力：近20日低点/高点
+  const h20 = Math.max(...kl.slice(-20).map(k => k.high))
+  const l20 = Math.min(...kl.slice(-20).map(k => k.low))
+  return { signals: [...new Set(signals)], support: +l20.toFixed(2), resistance: +h20.toFixed(2), chg_20d: +chg20.toFixed(2), tone: chg20 > 0 ? 'bull' : 'bear' }
+}
+
+export function computePaict(kl) {
+  if (!kl || kl.length < 30) return null
+  const last = kl[kl.length - 1]
+  const h20 = Math.max(...kl.slice(-20).map(k => k.high))
+  const l20 = Math.min(...kl.slice(-20).map(k => k.low))
+  const range = h20 - l20 || 1
+  const fib382 = l20 + range * 0.382
+  const fib618 = l20 + range * 0.618
+  const supports = [l20, l20 + range * 0.236].filter(v => v < last.close).sort((a, b) => b - a)
+  const resistances = [h20, l20 + range * 0.786].filter(v => v > last.close).sort((a, b) => a - b)
+  return { levels: [{ type: 'support', price: +supports[0]?.toFixed(2) }, { type: 'resistance', price: +resistances[0]?.toFixed(2) }].filter(x => x.price), supports: supports.map(v => +v.toFixed(2)), resistances: resistances.map(v => +v.toFixed(2)), fib382: +fib382.toFixed(2), fib618: +fib618.toFixed(2), structureText: last.close > fib618 ? '上涨结构' : last.close > fib382 ? '震荡结构' : '下跌结构' }
+}
+
 // ============ 回测 ============
 export const getBacktest = async (params) =>
   _json('/api/backtest?' + new URLSearchParams(params).toString(), { signal: AbortSignal.timeout(120000), cache: 'no-store' }).catch(() => null)
@@ -485,202 +587,5 @@ export const fmtMoney = (v) => {
   return String(Math.round(v))
 }
 
-
-// ===== v55 完整版指标/K线分析/PA-ICT（Rs/zs/vl 解码还原 2026-08-18）=====
-// ===== v55 Rs 完整版 =====
-export function computeIndicators(s, t = "swing") {
-  const e = { short: [6, 13, 5], swing: [12, 26, 9], long: [26, 52, 9] }[t] || [12, 26, 9], i = { short: 10, swing: 20, long: 20 }[t] || 20, n = s.map((W) => W.close), l = s.map((W) => W.high), a = s.map((W) => W.low), c = s.map((W) => W.volume), u = s.length, f = {};
-  for (const W of [5, 10, 20, 60, 120, 250]) {
-    const V = new Array(u).fill(null);
-    let A = 0;
-    for (let X = 0; X < u; X++) A += n[X], X >= W && (A -= n[X - W]), X >= W - 1 && (V[X] = +(A / W).toFixed(2));
-    f[W] = V;
-  }
-  function p(W, V) {
-    const A = 2 / (V + 1), X = [];
-    let yt = W[0];
-    for (let Tt = 0; Tt < W.length; Tt++) yt = Tt === 0 ? W[0] : W[Tt] * A + yt * (1 - A), X.push(yt);
-    return X;
-  }
-  const m = p(n, e[0]), y = p(n, e[1]), w = n.map((W, V) => m[V] - y[V]), S = p(w, e[2]), C = w.map((W, V) => (W - S[V]) * 2), O = { dif: w, dea: S, bar: C };
-  function R(W) {
-    const V = [null];
-    let A = 0, X = 0;
-    for (let yt = 1; yt < u; yt++) {
-      const Tt = n[yt] - n[yt - 1];
-      yt <= W ? (A += Math.max(Tt, 0), X += Math.max(-Tt, 0), yt === W ? (A /= W, X /= W, V.push(+(100 - 100 / (1 + (X === 0 ? 100 : A / X))).toFixed(2))) : V.push(null)) : (A = (A * (W - 1) + Math.max(Tt, 0)) / W, X = (X * (W - 1) + Math.max(-Tt, 0)) / W, V.push(+(100 - 100 / (1 + (X === 0 ? 100 : A / X))).toFixed(2)));
-    }
-    return V;
-  }
-  const D = R(14), N = R(6), $ = { k: [], d: [], j: [] };
-  let I = 50, U = 50;
-  for (let W = 0; W < u; W++) {
-    const V = Math.max(0, W - 8);
-    let A = -1 / 0, X = 1 / 0;
-    for (let Tt = V; Tt <= W; Tt++) A = Math.max(A, l[Tt]), X = Math.min(X, a[Tt]);
-    const yt = A === X ? 50 : (n[W] - X) / (A - X) * 100;
-    I = 2 / 3 * I + 1 / 3 * yt, U = 2 / 3 * U + 1 / 3 * I, $.k.push(+I.toFixed(2)), $.d.push(+U.toFixed(2)), $.j.push(+(3 * I - 2 * U).toFixed(2));
-  }
-  const tt = { mid: [], upper: [], lower: [] };
-  for (let W = 0; W < u; W++) {
-    if (W < i - 1) {
-      tt.mid.push(null), tt.upper.push(null), tt.lower.push(null);
-      continue;
-    }
-    let V = 0;
-    for (let Tt = 0; Tt < i; Tt++) V += n[W - Tt];
-    const A = V / i;
-    let X = 0;
-    for (let Tt = 0; Tt < i; Tt++) X += (n[W - Tt] - A) ** 2;
-    const yt = Math.sqrt(X / i);
-    tt.mid.push(+A.toFixed(2)), tt.upper.push(+(A + 2 * yt).toFixed(2)), tt.lower.push(+(A - 2 * yt).toFixed(2));
-  }
-  const dt = [], nt = [];
-  for (let W = 0; W < u; W++) {
-    if (W < 4) {
-      dt.push(null), nt.push(null);
-      continue;
-    }
-    let V = 0;
-    for (let X = 0; X < 5; X++) V += c[W - X];
-    const A = V / 5;
-    dt.push(+A.toFixed(0)), nt.push(+(c[W] / A).toFixed(2));
-  }
-  return { ma: f, macd: O, rsi: { 14: D, 6: N }, kdj: $, boll: tt, volMa5: dt, volRatio: nt };
-}
-
-// ===== v55 zs 完整版 =====
-export function computeKlineAna(s, t, e = "swing") {
-  if (s.length < 20) return { verdict: "数据不足", score: 0, summary: "数据不足20个交易日" };
-  const i = s.map((Ut) => Ut.close), n = i[i.length - 1], l = (n / i[i.length - 6] - 1) * 100, a = (n / i[i.length - 21] - 1) * 100, c = (Ut) => {
-    for (let fe = Ut.length - 1; fe >= 0; fe--) if (Ut[fe] != null) return Ut[fe];
-    return null;
-  }, u = c(t.ma[5]), f = c(t.ma[10]), p = c(t.ma[20]), m = c(t.ma[60]), y = t.ma && t.ma[250] ? c(t.ma[250]) : null, w = c(t.macd.dif), S = c(t.macd.dea), C = t.macd.bar, O = c(C);
-  let R = null;
-  for (let Ut = C.length - 2; Ut >= 0; Ut--) if (C[Ut] != null) {
-    R = C[Ut];
-    break;
-  }
-  const D = c(t.rsi[14]), N = c(t.rsi[6]), $ = c(t.kdj.k), I = c(t.kdj.d), U = c(t.kdj.j), tt = c(t.boll.upper), dt = c(t.boll.mid), nt = c(t.boll.lower), W = c(t.volRatio), V = { short: [N, 80], swing: [D, 75], long: [D, 70] }[e] || [D, 75], A = { short: [N, 20], swing: [D, 25], long: [D, 30] }[e] || [D, 25], X = { short: 110, swing: 100, long: 100 }[e] || 100, yt = { short: 20, swing: 15, long: 15 }[e] || 15, Tt = V[0], qt = V[1], Xt = A[1];
-  let ht;
-  u > f && f > p && (m == null || p > m) ? ht = "多头排列" : u < f && f < p && (m == null || p < m) ? ht = "空头排列" : ht = "均线交织";
-  let ct = 0;
-  const Bt = [];
-  n > p ? (ct += 2, Bt.push("价格站上MA20，中期趋势偏多")) : (ct -= 2, Bt.push("价格跌破MA20，中期趋势偏空")), ht === "多头排列" ? (ct += 2, Bt.push("均线多头排列，上涨结构完整")) : ht === "空头排列" && (ct -= 2, Bt.push("均线空头排列，下跌结构压制")), w != null && S != null && (w > S && O > 0 ? (ct += 1, Bt.push("MACD金叉运行中，多方动能占优")) : w < S && O < 0 && (ct -= 1, Bt.push("MACD死叉运行中，空方动能占优")), R != null && O > R && O > 0 ? (ct += 1, Bt.push("MACD红柱放大，上涨动能增强")) : R != null && O < R && O < 0 ? (ct -= 1, Bt.push("MACD绿柱放大，下跌动能增强")) : R != null && O > R && O < 0 && (ct += 1, Bt.push("MACD绿柱缩短，下跌动能减弱"))), Tt != null && (Tt > qt ? (ct -= 1, Bt.push(`RSI=${Tt}进入超买区，短线回调风险`)) : Tt < Xt ? (ct += 1, Bt.push(`RSI=${Tt}进入超卖区，短线反弹机会`)) : Tt > 50 && (ct += 0, Bt.push(`RSI=${Tt}，多方略占优势`))), $ != null && I != null && ($ > I && U < 80 ? (ct += 1, Bt.push("KDJ金叉向上，短线动能良好")) : $ < I && (ct -= 1, Bt.push("KDJ死叉向下，短线偏弱")), U > X ? (ct -= 1, Bt.push(`KDJ的J值>${X}，短线严重超买`)) : U < 0 && (ct += 1, Bt.push("KDJ的J值<0，短线严重超卖"))), tt != null && nt != null && (n > tt ? (ct -= 1, Bt.push("价格突破布林上轨，短线过热")) : n < nt && (ct += 1, Bt.push("价格跌破布林下轨，短线超跌"))), W != null && (W > 1.5 && l > 0 ? (ct += 1, Bt.push(`近5日放量上涨（量比${W}），资金介入明显`)) : W > 1.5 && l < 0 ? (ct -= 1, Bt.push(`近5日放量下跌（量比${W}），资金出逃警惕`)) : W < 0.6 && Bt.push(`缩量运行（量比${W}），观望情绪浓`)), l > yt ? (ct -= 1, Bt.push(`近5日涨幅${l.toFixed(1)}%过大，追高风险`)) : l < -15 && (ct += 1, Bt.push(`近5日跌幅${l.toFixed(1)}%过大，超跌反弹可能`)), ct = Math.max(-10, Math.min(10, ct));
-  let ue, he;
-  ct >= 6 ? (ue = "强势看多", he = "bull") : ct >= 3 ? (ue = "偏多", he = "bull") : ct >= -2 ? (ue = "震荡观望", he = "mid") : ct >= -5 ? (ue = "偏空", he = "bear") : (ue = "弱势看空", he = "bear");
-  const Se = s.slice(-60), Ie = Math.min(...Se.map((Ut) => Ut.low)), Ke = Math.max(...Se.map((Ut) => Ut.high)), ye = `综合评分${ct}/10，${ue}。近5日${l >= 0 ? "涨" : "跌"}${Math.abs(l).toFixed(1)}%，近20日${a >= 0 ? "涨" : "跌"}${Math.abs(a).toFixed(1)}%；${ht}${y != null ? `，年线MA250=${y}` : ""}；关键支撑${Ie.toFixed(2)}、压力${Ke.toFixed(2)}。`;
-  return { verdict: ue, tone: he, score: ct, chg_5d: +l.toFixed(2), chg_20d: +a.toFixed(2), ma_status: ht, ma250: y, rsi: D, kdj_j: U, vol_ratio: W, boll_pos: tt != null ? n < dt ? "下轨" : n > dt ? "上轨" : "中轨" : null, support: +Ie.toFixed(2), resistance: +Ke.toFixed(2), signals: Bt, summary: ye };
-}
-
-// ===== v55 vl 完整版 =====
-export function computePaict(s) {
-  if (!s || s.length < 40) return null;
-  const t = s.length, e = s.map((V) => V.high), i = s.map((V) => V.low), l = s.map((V) => V.close)[t - 1], a = [], c = [];
-  for (let V = 3; V < t - 3; V++) {
-    let A = true, X = true;
-    for (let yt = V - 3; yt <= V + 3; yt++) yt !== V && (e[yt] >= e[V] && (A = false), i[yt] <= i[V] && (X = false));
-    A && a.push({ idx: V, price: e[V] }), X && c.push({ idx: V, price: i[V] });
-  }
-  const u = a.slice(-2), f = c.slice(-2);
-  let p = "range", m = "震荡结构：高低点互有高低，方向未明";
-  if (u.length >= 2 && f.length >= 2) {
-    const V = u[1].price > u[0].price, A = f[1].price > f[0].price;
-    V && A ? (p = "up", m = "上升结构：高点低点持续抬升，多头占优") : !V && !A && (p = "down", m = "下降结构：高点低点持续走低，空头占优");
-  }
-  const y = a.filter((V) => V.idx >= t - 250), w = c.filter((V) => V.idx >= t - 250), S = [...new Set(w.map((V) => V.price).filter((V) => V < l && (l - V) / l < 0.25))].sort((V, A) => A - V).slice(0, 2), C = [...new Set(y.map((V) => V.price).filter((V) => V > l && (V - l) / l < 0.25))].sort((V, A) => V - A).slice(0, 2), O = s.slice(-60), R = Math.max(...O.map((V) => V.high)), D = Math.min(...O.map((V) => V.low)), N = R > l && (R - l) / l < 0.03, $ = D < l && (l - D) / l < 0.03;
-  let I = "";
-  N && $ ? I = `上方 ${R.toFixed(2)} 与下方 ${D.toFixed(2)} 都有止损池，注意双向假突破` : N ? I = `上方 ${R.toFixed(2)} 有止损池（前高），突破谨防假突破` : $ && (I = `下方 ${D.toFixed(2)} 有止损池（前低），跌破谨防假跌破`);
-  const U = [], tt = s.slice(-20);
-  for (let V = 1; V < tt.length; V++) {
-    const A = tt[V], X = tt[V - 1], yt = Math.abs(A.close - A.open), Tt = A.high - Math.max(A.open, A.close), qt = Math.min(A.open, A.close) - A.low;
-    if (yt > 0 && qt >= 2 * yt && Tt <= yt) {
-      const Xt = p === "down";
-      U.push({ type: "hammer", dir: Xt ? "bullish" : "bearish", text: Xt ? "锤子线（长下影）：下跌后见底信号，下方有承接" : "上吊线（长下影）：上涨后出现，警惕见顶" });
-    }
-    yt > 0 && Tt >= 2 * yt && qt <= yt && U.push({ type: "shooting_star", dir: "bearish", text: "射击之星（长上影）：上方抛压重，见顶信号" }), A.close > A.open && X.close < X.open && A.close >= X.open && A.open <= X.close && U.push({ type: "engulfing", dir: "bullish", text: "看涨吞没：阳线吞掉前阴线，多头反攻" }), A.close < A.open && X.close > X.open && A.close <= X.open && A.open >= X.close && U.push({ type: "engulfing", dir: "bearish", text: "看跌吞没：阴线吞掉前阳线，空头压制" }), A.high <= X.high && A.low >= X.low && yt > 0 && U.push({ type: "inside", dir: "neutral", text: "内包线：波动收窄，酝酿方向选择" });
-  }
-  const dt = s.slice(-40), nt = [];
-  for (let V = 2; V < dt.length; V++) {
-    const A = dt[V], X = dt[V - 1], yt = dt[V - 2];
-    A.close > A.open && X.close < X.open && yt.close < yt.open && nt.push({ price: A.low, dir: "bullish", text: `看涨订单块 ${A.low.toFixed(2)}：下跌后机构建仓区，回踩是关注位` }), A.close < A.open && X.close > X.open && yt.close > yt.open && nt.push({ price: A.high, dir: "bearish", text: `看跌订单块 ${A.high.toFixed(2)}：上涨后机构出货区，反弹是压力` });
-  }
-  const W = [];
-  for (let V = 2; V < dt.length; V++) {
-    const A = dt[V], X = dt[V - 2];
-    A.low > X.high && W.push({ price: (A.low + X.high) / 2, dir: "bullish", text: `看涨缺口（FVG）${X.high.toFixed(2)}~${A.low.toFixed(2)}，价格倾向回补` }), A.high < X.low && W.push({ price: (A.high + X.low) / 2, dir: "bearish", text: `看跌缺口（FVG）${A.high.toFixed(2)}~${X.low.toFixed(2)}，反弹有压力` });
-  }
-  return { structure: p, structureText: m, supports: S.slice(0, 2), resistances: C.slice(0, 2), liquidityText: I, signals: U.slice(-4), orderBlocks: nt.slice(-3), fvgs: W.slice(-2), levels: [...S.slice(0, 2).map((V) => ({ price: V, type: "support" })), ...C.slice(0, 2).map((V) => ({ price: V, type: "resistance" }))] };
-}
-
 export { today, isTrading }
-
-// ===== 资金流（v55 反推恢复：详情页估值/资金/决策面板数据源）=====
-// 今日主力资金（klt=1 分时资金最后一根）
-export async function getFundFlow(secid) {
-  try {
-    const d = await _json(`https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get?lmt=0&klt=1&secid=${secid}&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56`)
-    const e = d?.data?.klines || []
-    if (!e.length) return null
-    const i = e[e.length - 1].split(',')
-    return { main: +i[1], small: +i[2], medium: +i[3], large: +i[4], super_large: +i[5] }
-  } catch { return null }
-}
-// 盘中主力时序（一眼看懂午盘判断用）
-export async function getIntradayFlow(secid) {
-  try {
-    const url = `https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=0&klt=1&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56`
-    const json = await new Promise((resolve, reject) => {
-      const cb = 'mfs' + Math.random().toString(36).slice(2, 8)
-      window[cb] = (p) => { delete window[cb]; resolve(JSON.stringify(p)) }
-      const s = document.createElement('script')
-      s.src = url + `&cb=${cb}`
-      s.onerror = () => { delete window[cb]; reject(new Error('jsonp fail')) }
-      document.head.appendChild(s)
-      setTimeout(() => { delete window[cb]; reject(new Error('timeout')) }, 8000)
-    })
-    const n = JSON.parse(json)
-    return (n?.data?.klines || []).map(a => {
-      const c = a.split(',')
-      return { time: c[0].slice(11, 16), main: +c[1], small: +c[2], medium: +c[3], large: +c[4], super: +c[5] }
-    })
-  } catch { return [] }
-}
-// 5日 vs 今日主力（f62=今日主力净额, f267=5日主力净额）
-export async function getFiveDayFlow(secid) {
-  try {
-    const d = await _json(`https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=${secid}&fltt=2&invt=2&fields=f12,f62,f267`)
-    const l = Object.values(d?.data?.diff || {})[0]
-    return l ? { today: typeof l.f62 === 'number' ? l.f62 : null, fiveDay: typeof l.f267 === 'number' ? l.f267 : null } : null
-  } catch { return null }
-}
-// 多周期资金流（today/d5/d10/d20，决策引擎 + listStage 用）
-export async function getMultiFlow(secid) {
-  try {
-    const d = await _json(`https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=${secid}&fltt=2&invt=2&fields=f12,f62,f267,f164,f174`)
-    const l = Object.values(d?.data?.diff || {})[0]
-    return l ? {
-      today: typeof l.f62 === 'number' ? l.f62 : null,
-      d5: typeof l.f267 === 'number' ? l.f267 : null,
-      d10: typeof l.f164 === 'number' ? l.f164 : null,
-      d20: typeof l.f174 === 'number' ? l.f174 : null,
-    } : null
-  } catch { return null }
-}
-// 股东户数趋势（决策引擎筹码集中/分散判定）
-export async function getHolderTrend(secid) {
-  try {
-    const code = String(secid).split('.')[1]
-    const url = `https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_HOLDERNUM_DET&columns=ALL&filter=${encodeURIComponent(`(SECURITY_CODE="${code}")`)}&pageSize=5&sortColumns=END_DATE&sortTypes=-1&source=WEB&client=WEB`
-    const d = await _json(url)
-    const list = d?.result?.data || []
-    return list.map((a, i) => {
-      const u = a.HOLDER_NUM
-      const next = i < list.length - 1 ? list[i + 1].HOLDER_NUM : null
-      const chg = a.HOLDER_NUM_CHANGE_RATE != null ? a.HOLDER_NUM_CHANGE_RATE : (next && u ? (u - next) / next * 100 : 0)
-      return { date: String(a.END_DATE || '').slice(0, 7), num: u, change: +chg.toFixed(1) }
-    })
-  } catch { return [] }
-}
-
-export default { getQuotes, getKlines, getTrends, getZtPool, getZbPool, getZtHistory, saveZtHistory, getLhb, getList, getRsi, getPredict, getRealtime, getHistory, getLiveFrame, getMarketTemp, llmAnalyze, getHoldings, saveHoldings, getWatchlist, saveWatchlist, getSettings, saveSettings, getBacktest, searchStock, getRealtimeQuote, getPing, computeCycle, industryStat, advanceRate, boardOf, cached, fmtMoney, today, isTrading, getFundFlow, getIntradayFlow, getFiveDayFlow, getMultiFlow, getHolderTrend }
+export default { getQuotes, getKlines, getTrends, getZtPool, getZbPool, getZtHistory, saveZtHistory, getLhb, getList, getRsi, getPredict, getRealtime, getHistory, getLiveFrame, getMarketTemp, llmAnalyze, getHoldings, saveHoldings, getWatchlist, saveWatchlist, getSettings, saveSettings, getBacktest, searchStock, getRealtimeQuote, getPing, computeCycle, industryStat, advanceRate, boardOf, cached, fmtMoney, today, isTrading }
