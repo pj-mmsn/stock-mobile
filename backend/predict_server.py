@@ -2775,11 +2775,19 @@ def mbm_score_market(mode='swing'):
     from scipy.stats import spearmanr
     label = {'short': 'ret2_open', 'swing': 'ret3_open', 'long': 'ret5_open'}.get(mode, 'ret3_open')
     stable = _mbm_stable_feats()
-    # 训练期样本 → 滚动 ICIR 权重
+    # 训练期样本 → 滚动 ICIR 权重（⚠️ 只取最近 45 个交易日——全量加载 2024+ 样本在 2GB 服务器会 swap 风暴卡死）
     c = sqlite3.connect(DB)
-    rows = c.execute(
-        "SELECT date, feats, labels FROM mbm_samples WHERE mode=? AND date >= '2024-01-01'",
+    sub = c.execute(
+        "SELECT DISTINCT date FROM mbm_samples WHERE mode=? ORDER BY date DESC LIMIT 45",
         (mode,)).fetchall()
+    dates45 = [r[0] for r in sub]
+    if not dates45:
+        c.close()
+        return {'error': '无训练样本'}
+    ph = ','.join('?' * len(dates45))
+    rows = c.execute(
+        f"SELECT date, feats, labels FROM mbm_samples WHERE mode=? AND date IN ({ph})",
+        (mode, *dates45)).fetchall()
     days = _dd(list)
     feat_names = None
     for date, feats_s, labels_s in rows:
