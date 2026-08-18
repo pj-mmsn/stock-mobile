@@ -247,17 +247,51 @@
         </div>
         <!-- 实时机会列表 -->
         <div v-if="ovTab === 'realtime'" class="rt-list">
+          <!-- 新发现横幅（v55 rt-newbar） -->
+          <div v-if="rtFull?.is_new_count" class="rt-newbar" @click="loadRealtime(true)">
+            🔔 本轮新发现 {{ rtFull.is_new_count }} 只机会，点击刷新查看
+          </div>
+          <!-- 顶部状态条（v55 rt-top） -->
+          <div class="rt-top" v-if="rtFull">
+            <span class="rt-time">🟢 {{ rtFull.is_trading ? '实时' : '离线' }} · 更新 {{ rtFull.updated || '--' }}
+              <template v-if="rtFull.hot_ts"> · 热区 {{ rtFull.hot_ts }}</template>
+              <template v-if="rtFull.full_ts"> · 全市场 {{ rtFull.full_ts }}</template>
+            </span>
+            <button class="mini-btn" :disabled="loadingRt" @click="loadRealtime(true)">🔄 刷新</button>
+          </div>
+          <!-- 刚封板折叠区（v55 rt-ztfold） -->
+          <div v-if="rtFull?.zt_new?.length" class="rt-ztfold">
+            <div class="rt-ztfold-head" @click="rtZtFold = !rtZtFold">
+              🚀 刚封板 {{ rtFull.zt_new.length }} 只（打板玩法 · 已从主列表过滤）<span class="rt-ztfold-arrow">{{ rtZtFold ? '▸' : '▾' }}</span>
+            </div>
+            <div v-if="!rtZtFold" class="rt-ztfold-body">
+              <div v-for="h in rtFull.zt_new" :key="h.code" class="rt-item" @click="openStock(h)">
+                <div class="rt-main">
+                  <div class="rt-name">{{ h.name }} <em>{{ h.code }}</em> <span class="rt-tag zt">🚀涨停</span></div>
+                  <div class="rt-sigs">
+                    <span class="rt-sig hot">封单 {{ fmtMoney(h.seal_amount) }}</span>
+                  </div>
+                </div>
+                <div class="rt-right">
+                  <div class="rt-trade" :class="h.change_pct >= 0 ? 'up' : 'down'">{{ h.price != null ? h.price.toFixed(2) : '--' }} {{ fmtPct(h.change_pct) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
           <div v-for="(h, q) in rtFiltered" :key="h.code" class="rt-item" @click="toggleFav(h)">
             <div class="rt-rank"><em>{{ q + 1 }}</em></div>
             <div class="rt-main">
               <div class="rt-name">{{ h.name }} <em>{{ h.code }}</em> <span class="rt-board">{{ boardName(h) }}</span> <span class="rt-hz" :class="styleCls(h)">{{ styleText(h) }}</span></div>
               <div class="rt-sigs">
+                <span v-if="h.is_new" class="rt-tag new">🆕新</span>
                 <span v-if="h.sig_zt" class="rt-sig hot">🚀涨停</span>
                 <span v-if="h.sig_pump" class="rt-sig hot">📈今日拉升</span>
                 <span v-if="h.sig_super" class="rt-sig hot">🃏超大扫货</span>
                 <span v-if="h.sig_reverse" class="rt-sig dip">🔁反包</span>
                 <span v-for="s in rtExtraSigs(h)" :key="s" class="rt-sig">{{ sigName(s) }}</span>
+                <span v-if="h.participate" class="rt-tag" :class="h.participate === '可参与' ? 'ok' : h.participate === '快封板' ? 'fast' : 'zt'">{{ h.participate === '可参与' ? '🛺' : h.participate === '快封板' ? '⚠️' : '🚫' }} {{ h.participate }}</span>
               </div>
+              <div v-if="h.discovered_at" class="rt-discovered">🕐 {{ h.discovered_at }} 发现<template v-if="h.duration"> · {{ h.duration }}分钟</template></div>
             </div>
             <div class="rt-right">
               <div class="rt-score" :class="scoreCls(h.rtScore ?? h.score)">{{ h.rtScore ?? h.score }}</div>
@@ -586,6 +620,16 @@
               <button v-for="f in [3, 5, 10]" :key="f" :class="['mode-btn', { on: liveFreq === f }]" @click="setLiveFreq(f)">{{ f }}s</button>
             </span>
           </div>
+          <!-- 环境温度（v55 Ae） -->
+          <div v-if="envTemp" class="lp-block env-temp">
+            <div class="lp-name">🌡️ 环境温度</div>
+            <div class="lp-grid">
+              <div class="lp-cell"><span class="il">涨停</span><b class="up">{{ envTemp.total }}</b></div>
+              <div class="lp-cell"><span class="il">炸板率</span><b :class="envTemp.breakRate > 30 ? 'down' : 'up'">{{ envTemp.breakRate }}%</b></div>
+              <div class="lp-cell"><span class="il">连板高度</span><b>{{ envTemp.maxLb }}板</b></div>
+              <div class="lp-cell lp-wide"><span class="il">大盘</span><b :class="mktDir.up > mktDir.down ? 'up' : 'down'">{{ mktDirText }}</b></div>
+            </div>
+          </div>
           <div class="live-panel">
             <div class="lp-block">
               <div class="lp-name">🧠 行为识别</div>
@@ -595,6 +639,17 @@
                 <span class="beh-conf">置信{{ liveBehavior.confidence }}%</span>
               </div>
               <div v-else class="lp-sig-none">等待数据...</div>
+            </div>
+            <!-- 行为雷达完整卡（v55 xs） -->
+            <div v-if="liveRadarDesc || liveRadarEvidence.length" class="live-radar">
+              <div class="radar-head">
+                <span class="radar-badge" :style="{ background: (liveBehavior?.color || '#58a6ff') + '22', borderColor: (liveBehavior?.color || '#58a6ff') + '66' }">{{ liveBehavior?.emoji || '🎯' }} {{ liveBehavior?.label || '行为雷达' }}</span>
+                <span class="radar-conf">主力意图 {{ liveBehavior?.confidence ?? '--' }}% · 基于近30分钟行为</span>
+              </div>
+              <div v-if="liveRadarDesc" class="radar-desc">{{ liveRadarDesc }}</div>
+              <div v-if="liveRadarEvidence.length" class="radar-evidence">
+                <div v-for="(e, i) in liveRadarEvidence" :key="i" class="re-item">• {{ e }}</div>
+              </div>
             </div>
             <div class="lp-block">
               <div class="lp-name">📡 买卖信号</div>
@@ -608,6 +663,24 @@
                 <div v-if="!liveSignals.length" class="lp-sig-none">暂无信号</div>
               </div>
             </div>
+            <!-- 买卖时机分类（v55 Qn） -->
+            <div v-if="buyTiming.length || sellTiming.length || holdTiming.length" class="live-timing">
+              <div v-for="b in buyTiming" :key="'b' + b.id" class="tm-row1">
+                <span class="tm-signal tm-sig-buy">🟢 买入</span>
+                <span class="tm-price">{{ b.pos }}</span>
+                <span class="tm-desc">{{ b.label }} · {{ b.trigger }}</span>
+              </div>
+              <div v-for="s in sellTiming" :key="'s' + s.id" class="tm-row1">
+                <span class="tm-signal tm-sig-sell">🔴 卖出</span>
+                <span class="tm-price">{{ s.pos }}</span>
+                <span class="tm-desc">{{ s.label }} · {{ s.trigger }}</span>
+              </div>
+              <div v-for="h in holdTiming" :key="'h' + h.id" class="tm-row1">
+                <span class="tm-signal" style="color:#d29922">⚠️ 持有</span>
+                <span class="tm-price">{{ h.pos }}</span>
+                <span class="tm-desc">{{ h.label }} · {{ h.trigger }}</span>
+              </div>
+            </div>
             <div class="lp-block">
               <div class="lp-name">⚠️ 异常监测</div>
               <div class="live-anom">
@@ -619,9 +692,125 @@
                 <div v-if="!liveAnoms.length" class="lp-sig-none">暂无异常</div>
               </div>
             </div>
+            <!-- 昨晚预测 vs 今日实盘（v55 live-fc） -->
+            <div v-if="liveFcRows.length" class="live-fc">
+              <div class="fc-grid">
+                <div v-for="r in liveFcRows" :key="r.name" class="fc-item">
+                  <span class="fc-name">{{ r.name }} {{ r.target }}</span>
+                  <span v-if="r.hit" class="fc-status" style="color:#f85149">⚠️ 已触发</span>
+                  <span v-else-if="r.ok" class="fc-status" style="color:#3fb950">✓ 已达成</span>
+                  <span v-else class="fc-status st-wait">⏳ 未到价</span>
+                </div>
+              </div>
+              <div v-if="livePred" class="il-exp" style="margin-top:4px">🎯 预测信号灯 · 昨晚预测 vs 今日实盘（基于昨日收盘数据）</div>
+            </div>
           </div>
           <button class="llm-btn" :disabled="aiLiveLoading" @click="runLiveAI">{{ aiLiveLoading ? '分析中...' : '🤖 AI 解读当前盘面' }}</button>
           <div v-if="liveAI" class="llm-text" style="white-space:pre-wrap">{{ liveAI }}</div>
+        </div>
+        <!-- ============ 技术页（v55 tech 视图）============ -->
+        <div v-else-if="detailTab === 'tech'" class="tech-page">
+          <!-- 技术指标 -->
+          <section v-if="indicators.ma" class="sec">
+            <div class="sec-title">📊 技术指标 <button class="mini-btn" style="margin-left:auto" @click="showIndHelp = true">💡 指标怎么看</button></div>
+            <div class="ind-grid">
+              <div class="ind-item"><span class="iv">MA5</span> {{ fmtNum(indMa(5)) }}<div class="il-exp">{{ IND_EXPLAIN.MA }}</div></div>
+              <div class="ind-item"><span class="iv">MA10</span> {{ fmtNum(indMa(10)) }}<div class="il-exp">{{ IND_EXPLAIN.MA }}</div></div>
+              <div class="ind-item"><span class="iv">MA20</span> {{ fmtNum(indMa(20)) }}<div class="il-exp">{{ IND_EXPLAIN.MA }}</div></div>
+              <div class="ind-item"><span class="iv" style="color:#f0c929">MACD</span> DIF {{ fmtNum(indMacd('dif')) }} · DEA {{ fmtNum(indMacd('dea')) }}<div class="il-exp">{{ IND_EXPLAIN.MACD }}</div></div>
+              <div class="ind-item"><span class="iv">RSI14</span> <b :class="indRsiCls">{{ indRsi }}</b><div class="il-exp">{{ IND_EXPLAIN.RSI }}</div></div>
+              <div class="ind-item"><span class="iv" style="color:#e040fb">KDJ</span> K {{ fmtNum(indKdj('k')) }} · D {{ fmtNum(indKdj('d')) }} · J {{ fmtNum(indKdj('j')) }}<div class="il-exp">{{ IND_EXPLAIN.KDJ }}</div></div>
+              <div class="ind-item"><span class="iv" style="color:#58a6ff">BOLL(20,2)</span> 上 {{ fmtNum(indBoll('upper')) }} · 中 {{ fmtNum(indBoll('mid')) }} · 下 {{ fmtNum(indBoll('lower')) }}<div class="il-exp">{{ IND_EXPLAIN.BOLL }}</div></div>
+              <div class="ind-item"><span class="iv">量能</span> 量比 <b :class="indVolCls">{{ indVolRatio }}</b><div class="il-exp">{{ IND_EXPLAIN.量比 }}</div></div>
+            </div>
+          </section>
+          <!-- K线分析 -->
+          <section v-if="klineAna" class="sec">
+            <div class="sec-title">📈 K线分析 <span class="sec-sub">综合评分 {{ klineAna.score ?? '--' }}/10</span></div>
+            <div class="ka-verdict" :class="klineAnaToneCls">{{ klineAna.verdict || klineAna.trend }}</div>
+            <div class="ka-grid">
+              <div class="ka-item"><span class="iv">近5日</span> <b :class="ptCls(klineAna.chg_5d)">{{ fmtPct(klineAna.chg_5d) }}</b></div>
+              <div class="ka-item"><span class="iv">近20日</span> <b :class="ptCls(klineAna.chg_20d)">{{ fmtPct(klineAna.chg_20d) }}</b></div>
+              <div class="ka-item"><span class="iv">均线</span> {{ klineAna.ma_status || '--' }}</div>
+              <div class="ka-item"><span class="iv">RSI</span> {{ klineAna.rsi ?? '--' }}<br><span class="iv">J</span> {{ klineAna.kdj_j ?? '--' }}</div>
+              <div class="ka-item"><span class="iv">支撑</span> {{ fmtNum(klineAna.support) }}</div>
+              <div class="ka-item"><span class="iv">压力</span> {{ fmtNum(klineAna.resistance) }}</div>
+            </div>
+            <div v-if="klineAna.signals?.length" class="ka-signals">
+              <div v-for="(h, q) in klineAna.signals" :key="q" class="ka-sig">• {{ h }}</div>
+            </div>
+            <div v-if="klineAna.summary" class="ka-summary">{{ klineAna.summary }}</div>
+            <div class="il-exp">{{ IND_EXPLAIN.评分 }}</div>
+          </section>
+          <!-- 主力做局 -->
+          <section v-if="multiFlow" class="sec">
+            <div class="sec-title">🐂 主力做局 <span class="sec-sub">长线视角 · 主力战期可达1-2年</span></div>
+            <div class="mf-grid">
+              <div class="mf-cell"><span class="il">当日</span> <b :class="ptCls(multiFlow.today)">{{ fmtMoney(multiFlow.today) }}</b></div>
+              <div class="mf-cell"><span class="il">5日</span> <b :class="ptCls(multiFlow.d5)">{{ fmtMoney(multiFlow.d5) }}</b></div>
+              <div class="mf-cell"><span class="il">10日</span> <b :class="ptCls(multiFlow.d10)">{{ fmtMoney(multiFlow.d10) }}</b></div>
+              <div class="mf-cell"><span class="il">20日</span> <b :class="ptCls(multiFlow.d20)">{{ fmtMoney(multiFlow.d20) }}</b></div>
+            </div>
+            <div v-if="mfSignals.length" class="ka-signals">
+              <div v-for="(h, q) in mfSignals" :key="q" class="sig" :class="'sig-' + h.level">{{ h.text }}</div>
+            </div>
+            <div class="il-exp">当日骗人 · 看20日 · 户数看筹码（数据季度更新）</div>
+          </section>
+          <!-- 盘中量价 -->
+          <section v-if="intraday" class="sec">
+            <div class="sec-title">📊 今日盘中量价分析</div>
+            <div class="id-grid">
+              <div class="id-cell"><span class="il">均价 VWAP</span> <b>{{ fmtNum(intraday.vwap) }}</b></div>
+              <div class="id-cell"><span class="il">现价vs均价</span> <b :class="ptCls(intraday.vsVwap)">{{ (intraday.vsVwap > 0 ? '+' : '') + intraday.vsVwap.toFixed(1) + '%' }}</b></div>
+              <div class="id-cell"><span class="il">振幅</span> <b>{{ intraday.amplitude.toFixed(1) + '%' }}</b></div>
+              <div class="id-cell"><span class="il">分时强度</span> <b :class="ptCls(intraday.strength > 0 ? intraday.strength : -1)">{{ intraday.strength > 0 ? '偏多' : '偏空' }}</b></div>
+            </div>
+            <div v-if="intraday.zones?.length" class="id-zones">
+              <div class="sec-title" style="font-size:12px">💰 成交密集价位</div>
+              <div v-for="(h, q) in intraday.zones" :key="q" class="idz-item">
+                {{ fmtNum(h.price) }} ~ {{ fmtNum(h.price2) }} <span class="idz-pct">{{ h.pct }}%</span>
+                <span class="idz-type" :class="h.type === 'accum' ? 'up' : 'down'">{{ h.type === 'accum' ? '吸筹' : '出货' }}</span>
+              </div>
+            </div>
+            <div v-if="intraday.bigOrders?.length" class="id-big">
+              <div class="sec-title" style="font-size:12px">🔔 大单异动</div>
+              <div v-for="(h, q) in intraday.bigOrders" :key="q" class="idb-item">
+                <span class="idb-time">{{ h.time }}</span>
+                <span class="idb-dir" :class="h.type === 'buy' ? 'up' : 'down'">{{ h.type === 'buy' ? '买入' : '卖出' }}</span>
+                <span>{{ fmtMoney(h.amount) }}</span>
+              </div>
+            </div>
+          </section>
+          <!-- PA/ICT -->
+          <section v-if="paict" class="sec">
+            <div class="sec-title">📐 PA/ICT 结构分析 <span class="sec-sub">价格行为 · 聪明钱视角</span></div>
+            <div class="pa-struct" :class="'pa-' + paict.structure">{{ paict.structureText }}</div>
+            <div class="ka-grid">
+              <div class="ka-item"><span class="iv">支撑</span> {{ (paict.supports || []).map(x => fmtNum(x)).join(' / ') || '--' }}</div>
+              <div class="ka-item"><span class="iv">阻力</span> {{ (paict.resistances || []).map(x => fmtNum(x)).join(' / ') || '--' }}</div>
+            </div>
+            <div v-if="paict.liquidityText" class="pa-liq">{{ paict.liquidityText }}</div>
+            <div v-if="paict.signals?.length" class="ka-signals">
+              <div v-for="(h, q) in paict.signals" :key="q" class="sig" :class="'sig-' + (h.dir === 'bullish' ? 'good' : h.dir === 'bearish' ? 'warn' : 'mid')">
+                {{ h.dir === 'bullish' ? '🟢' : h.dir === 'bearish' ? '🔴' : '⚪' }} {{ h.text }}
+              </div>
+            </div>
+            <div v-if="paict.orderBlocks?.length" class="ka-signals">
+              <div v-for="(h, q) in paict.orderBlocks" :key="q" class="sig">🏦 {{ h.text }}</div>
+            </div>
+            <div v-if="paict.fvgs?.length" class="ka-signals">
+              <div v-for="(h, q) in paict.fvgs" :key="q" class="sig">🕳️ {{ h.text }}</div>
+            </div>
+            <div class="il-exp">图上虚线：绿=支撑 · 红=阻力（PA 关键价位）</div>
+          </section>
+          <!-- 指标解释弹层 -->
+          <div v-if="showIndHelp" class="modal explain-modal" @click.self="showIndHelp = false">
+            <div class="modal-title">指标怎么看</div>
+            <div class="ind-help-list">
+              <div v-for="(v, k) in IND_EXPLAIN" :key="k" class="ih-item"><b>{{ k }}</b> {{ v }}</div>
+            </div>
+            <div class="modal-actions"><button class="btn-ok" @click="showIndHelp = false">关闭</button></div>
+          </div>
         </div>
         <!-- 策略详情 -->
         <div v-else-if="detailTab === 'strategy'" class="st-detail">
@@ -636,32 +825,112 @@
             </div>
           </div>
         </div>
+        <!-- ============ 决策面板 ============ -->
+        <section v-if="detailTab !== 'live' && decision" class="sec dp">
+          <div class="sec-title">📋 决策面板 <span class="sec-sub">生命周期路径 · 当前阶段点亮</span></div>
+          <div class="dp-path">
+            <template v-for="(h, q) in LIFE_STAGES" :key="h.key">
+              <div class="dp-node" :class="['dp-node', stageNodeCls(h.key), { on: decision.stage === h.key }]">
+                <div class="dp-dot" :class="['dp-dot', 'dp-' + h.key]">{{ h.icon }}</div>
+                <span class="dp-node-label">{{ h.label }}</span>
+              </div>
+              <div v-if="q < LIFE_STAGES.length - 1" class="dp-arrow" :class="{ active: arrowActive(q) }">➤</div>
+            </template>
+          </div>
+          <div v-if="decision.stage === 'range'" class="dp-range-badge">⚪ 震荡期 · 方向未明，未进入主路径，等突破信号</div>
+          <div class="dp-top">
+            <span class="dp-action">{{ decision.action }}</span>
+            <span class="dp-conf">信心指数 <b>{{ decision.confidence }}</b>/10</span>
+          </div>
+          <div class="dp-advice">{{ decision.advice }}</div>
+          <div v-if="listStage && listStage !== decision.stage" class="dp-listtag">
+            列表筛选口径：{{ stageIcon(listStage) }} {{ stageLabel(listStage) }}（资金+涨幅近似）· 与完整判定不同，以本面板为准
+          </div>
+          <div v-if="decision.risks.length" class="dp-risks">
+            <div v-for="(h, q) in decision.risks" :key="q" class="sig sig-warn">⚠️ {{ h }}</div>
+          </div>
+          <div v-if="decision.reasons.length" class="dp-reasons">
+            <span v-for="(h, q) in decision.reasons" :key="q" class="dp-r">{{ h }}</span>
+          </div>
+        </section>
         <!-- 估值 -->
         <div v-else-if="detailTab === 'value'" class="val-page">
-          <div class="val-card" :class="valCls">
-            <div class="vc-title">估值判定</div>
-            <div class="vc-verdict">{{ valuation?.verdict || '--' }}</div>
-            <div class="vc-score">{{ valuation?.score || '--' }}/6分</div>
-          </div>
-          <div class="val-grid">
-            <div class="vg-cell"><span>PE</span><b :class="peCls">{{ peText }}</b></div>
-            <div class="vg-cell"><span>PB</span><b :class="pbCls">{{ pbText }}</b></div>
-            <div class="vg-cell"><span>ROE</span><b :class="roeCls">{{ roeText }}</b></div>
-            <div class="vg-cell"><span>市值</span><b>{{ capText }}</b></div>
+          <div v-if="valuation" class="val-card">
+            <div class="val-grid">
+              <div class="vg-cell vg-score" :class="valScoreCls">
+                <span class="vg-score-badge">{{ valuation.verdict }}</span>
+                <span class="vg-score-num">{{ valuation.score }}<em>/6</em></span>
+                <span class="vg-score-bar"><i v-for="h in 6" :key="h" :class="{ on: h <= valuation.score }"></i></span>
+              </div>
+              <div class="vg-cell">
+                <span class="vg-title">PE 市盈率</span>
+                <span class="vg-val">{{ valuation.pe != null ? valuation.pe.toFixed(1) : '--' }}</span>
+                <span class="vg-sub" :class="peCls">{{ peText }}</span>
+              </div>
+              <div class="vg-cell">
+                <span class="vg-title">PB 市净率</span>
+                <span class="vg-val">{{ valuation.pb != null ? valuation.pb.toFixed(2) : '--' }}</span>
+                <span class="vg-sub" :class="pbCls">{{ pbText }}</span>
+              </div>
+              <div class="vg-cell">
+                <span class="vg-title">ROE 净资产收益率</span>
+                <span class="vg-val">{{ valuation.roe != null ? valuation.roe + '%' : '--' }}<em v-if="valuation.roe_est" class="fb-note">≈估算</em></span>
+                <span class="vg-sub" :class="roeCls">{{ roeText }}</span>
+              </div>
+              <div class="vg-cell">
+                <span class="vg-title">总市值</span>
+                <span class="vg-val">{{ fmtNum(quote.mktcap) }}亿</span>
+                <span class="vg-sub">{{ capType }}</span>
+              </div>
+              <div class="vg-cell">
+                <span class="vg-title">今日涨跌</span>
+                <span class="vg-val" :class="ptCls(quote.change_pct)">{{ fmtPct(quote.change_pct) }}</span>
+                <span class="vg-sub">{{ quote.change_pct > 0 ? '红盘' : quote.change_pct < 0 ? '绿盘' : '平盘' }}</span>
+              </div>
+            </div>
+            <div v-if="valuation.points && valuation.points.length" class="val-points">
+              <div v-for="(h, q) in valuation.points" :key="q" class="vp">{{ h }}</div>
+            </div>
+            <div class="val-summary">{{ valuation.summary }}</div>
+            <div class="il-exp" style="margin-top: 6px">PE 越低越便宜 · PB&lt;1 破净 · ROE&gt;15% 优秀（{{ IND_EXPLAIN.ROE }}）</div>
           </div>
         </div>
         <!-- 资金流 -->
         <div v-else-if="detailTab === 'flow'" class="flow-page">
-          <div class="flow-bars">
-            <div v-for="f in flowBars" :key="f.name" class="fb-item">
-              <span class="fbi-name">{{ f.name }}</span>
-              <span class="fbi-bar" :class="f.cls" :style="{ width: f.width }"></span>
-              <span class="fbi-val" :class="f.cls">{{ fmtMoney(f.value) }}</span>
+          <div v-if="fundFlow" class="flow-card">
+            <div class="fc-head">
+              <span class="fl-label">💰 主力资金</span>
+              <span class="fc-dir" :class="ptCls(fundFlow.main)">{{ fundFlow.main >= 0 ? '净流入' : '净流出' }}</span>
             </div>
-          </div>
-          <div class="flow-notes">
-            <div v-for="(n, i) in flowNotes" :key="i" class="fn-item">{{ n }}</div>
-            <div v-if="!flowNotes.length" class="empty">暂无资金解读</div>
+            <div class="fc-net-big" :class="netCls">{{ fmtMoney(fundFlow.main) }}</div>
+            <div class="fc-legend">
+              <div v-for="h in flowRows" :key="h.name" class="fc-row">
+                <span class="fc-dot" :class="h.cls"></span>
+                <span class="fc-name">{{ h.name }}</span>
+                <div class="fc-bar"><div class="fc-fill" :class="h.cls" :style="{ width: h.width }"></div></div>
+                <span class="fc-val" :class="ptCls(h.value)">{{ fmtMoney(h.value) }}</span>
+              </div>
+            </div>
+            <!-- 5日 vs 今日 -->
+            <div v-if="fiveDayFlow && fiveDayFlow.today != null && fiveDayFlow.fiveDay != null" class="fc-hist">
+              <div class="fc-hist-title">📅 5日 vs 今日 主力</div>
+              <div class="fc-hist-row">
+                <span class="fc-hr-label">近5日</span>
+                <div class="fc-bar"><div class="fc-fill" :class="fiveDayFlow.fiveDay >= 0 ? 'in' : 'out'" :style="{ width: w5d }"></div></div>
+                <span class="fc-val" :class="ptCls(fiveDayFlow.fiveDay)">{{ fmtMoney(fiveDayFlow.fiveDay) }}</span>
+              </div>
+              <div class="fc-hist-row">
+                <span class="fc-hr-label">今日</span>
+                <div class="fc-bar"><div class="fc-fill" :class="fiveDayFlow.today >= 0 ? 'in' : 'out'" :style="{ width: wToday }"></div></div>
+                <span class="fc-val" :class="ptCls(fiveDayFlow.today)">{{ fmtMoney(fiveDayFlow.today) }}</span>
+              </div>
+              <div v-if="histInsight" class="fc-hist-insight">{{ histInsight }}</div>
+            </div>
+            <!-- 一眼看懂 -->
+            <div v-if="flowSignals.length" class="fc-signals">
+              <div class="fc-signals-title">🧠 一眼看懂</div>
+              <div v-for="(h, q) in flowSignals" :key="q" class="fc-signal">{{ h }}</div>
+            </div>
           </div>
         </div>
         <!-- AI 分析 -->
@@ -1077,13 +1346,17 @@ const styles = [
   { key: 'value', icon: '💎', name: '长线价值', desc: '低估值价值股：PE/PB/ROE 基本面 + 资金中期流入。适合长期配置。', sigs: ['sig_value', 'sig_volDry', 'sig_maBull'] },
 ]
 
-async function loadRealtime() {
+const rtFull = ref(null)      // v55 Ce：完整返回（含 is_new_count/zt_new/hot_ts/full_ts/is_trading）
+const rtZtFold = ref(true)    // v55 va：刚封板折叠开关
+async function loadRealtime(force = false) {
   if (loadingRt.value) return
   loadingRt.value = true
   try {
-    const d = await api.getRealtime()
-    if (d && d.items && d.items.length) { rtItems.value = d.items }
-    else if (d && d.scanning) {
+    const d = await api.getRealtime(mode.value, force)
+    if (d && d.items && d.items.length) {
+      rtItems.value = d.items
+      rtFull.value = d
+    } else if (d && d.scanning) {
       netTip.value = true
       setTimeout(() => { hi.value === 'realtime' && loadRealtime() }, 15000)
     }
@@ -1272,7 +1545,7 @@ async function openHistDetail(h) {
 // 详情页
 const detailTabs = [
   { key: 'kline', label: 'K线' }, { key: 'trend', label: '分时' }, { key: 'live', label: '实盘' },
-  { key: 'strategy', label: '策略' }, { key: 'value', label: '估值' }, { key: 'flow', label: '资金' },
+  { key: 'tech', label: '技术' }, { key: 'strategy', label: '策略' }, { key: 'value', label: '估值' }, { key: 'flow', label: '资金' },
   { key: 'ai', label: 'AI' }, { key: 'chat', label: '聊' },
 ]
 const detailTab = ref('kline')
@@ -1299,9 +1572,19 @@ async function loadDetail() {
     if (seq !== loadSeq || !d) return
     if (d.klines?.length) { klines.value = d.klines; indicators.value = d.indicators || {}; klineAna.value = d.klineAna || null; paict.value = d.paict || null; dataKlt.value = 101 }
     if (Array.isArray(d.trends) && d.trends.length) trends.value = d.trends
-    if (d.quote) quote.value = d.quote
+    if (d.quote) {
+      quote.value = d.quote
+      valuation.value = computeValuation(d.quote)   // 估值引擎（v55: ht=Qf(c)）
+    }
   } catch {}
-  api.getQuote(secid).then(q => { if (seq === loadSeq && q) quote.value = q }).catch(() => {})
+  api.getQuote(secid).then(q => { if (seq === loadSeq && q) { quote.value = q; valuation.value = computeValuation(q) } }).catch(() => {})
+  // 资金流五路并行（v55 Pr：C/R/D/O/N，各自 try/catch 互不影响）
+  api.getFundFlow(secid).then(v => { if (seq === loadSeq) fundFlow.value = v }).catch(() => {})
+  api.getFiveDayFlow(secid).then(v => { if (seq === loadSeq) fiveDayFlow.value = v }).catch(() => {})
+  api.getIntradayFlow(secid).then(v => { if (seq === loadSeq) intradayFlow.value = v }).catch(() => {})
+  api.getMultiFlow(secid).then(v => { if (seq === loadSeq) multiFlow.value = v }).catch(() => {})
+  api.getHolderTrend(secid).then(v => { if (seq === loadSeq) holderTrend.value = v }).catch(() => {})
+  loadIntraday()
   await loadPeriod(101, seq)
 }
 async function loadPeriod(klt, seq = loadSeq) {
@@ -1318,9 +1601,9 @@ async function loadPeriod(klt, seq = loadSeq) {
     if (seq !== loadSeq || !d || !d.length) return
     if (d.length > 10) {
       klines.value = d
-      const ind = api.computeIndicators(d)
+      const ind = api.computeIndicators(d, mode.value)
       indicators.value = ind
-      klineAna.value = api.computeKlineAna(d, ind)
+      klineAna.value = api.computeKlineAna(d, ind, mode.value)
       paict.value = api.computePaict(d)
       if (seq === loadSeq) dataKlt.value = klt
     }
@@ -1355,10 +1638,57 @@ const aiLiveLoading = ref(false)
 const liveAI = ref('')
 let liveTimer = null
 let liveFrameCache = null
+// v55 实盘完整版补充状态
+const envTemp = ref(null)          // 环境温度（涨停数/炸板率/连板高度）
+const mktDir = ref({ up: 0, down: 0 })   // 大盘方向
+const livePred = ref(null)         // 当前股昨晚预测（交易参数/预测对照）
+const liveCycle = ref(null)        // computeCycle 结果
+const buyTiming = computed(() => liveSignals.value.filter(s => s.side === 'buy'))
+const sellTiming = computed(() => liveSignals.value.filter(s => s.side === 'sell'))
+const holdTiming = computed(() => liveSignals.value.filter(s => s.side === 'hold'))
+// 行为雷达完整卡（v55 xs：reason/evidence）
+const liveRadarDesc = computed(() => liveBehavior.value?.reason || '')
+const liveRadarEvidence = computed(() => liveBehavior.value?.evidence || [])
+// 环境温度加载（v55 Ae：zt-pool + zb-pool 聚合）
+async function loadEnvTemp() {
+  try {
+    const [zt, zb] = await Promise.all([api.getZtPool(), api.getZbPool()])
+    const cyc = api.computeCycle(zt, zb)
+    liveCycle.value = cyc
+    envTemp.value = { total: zt?.total ?? 0, breakRate: cyc?.breakRate ?? 0, maxLb: cyc?.maxLb ?? 0 }
+  } catch { envTemp.value = null }
+}
+// 大盘方向（v55 Sm）
+async function loadMktDir() {
+  try { mktDir.value = await api.getMarketStats() } catch { mktDir.value = { up: 0, down: 0 } }
+}
+const mktDirText = computed(() => {
+  const { up, down } = mktDir.value
+  return up > down ? `涨 ${up} 跌 ${down} · 偏多` : up < down ? `涨 ${up} 跌 ${down} · 偏空` : `涨 ${up} 跌 ${down} · 均衡`
+})
+// 昨晚预测对照（v55 Re：predData.items 匹配当前 code）
+function loadLivePred() {
+  const items = predData.value?.items || []
+  const p = items.find(x => x.code === cur.value?.code)
+  livePred.value = p?.trade ? { ...p.trade, score: p.score, sigs: p.sigs } : null
+}
+const liveFcRows = computed(() => {
+  const t = livePred.value
+  if (!t) return []
+  const price = quote.value?.price
+  const o = []
+  if (t.entry != null) o.push({ name: '入场', target: t.entry, ok: price >= t.entry, wait: price < t.entry, label: t.entry_label || '回踩买' })
+  if (t.stop != null) o.push({ name: '止损', target: t.stop, hit: price <= t.stop, ok: price > t.stop })
+  if (t.target != null) o.push({ name: '目标', target: t.target, hit: price >= t.target, wait: price < t.target })
+  return o
+})
 
 function startLive() {
   stopLive()
   liveEngine.value = new LiveEngine(cur.value.code || '')
+  loadEnvTemp()
+  loadMktDir()
+  loadLivePred()
   liveTick()
   liveTimer = setInterval(liveTick, liveFreq.value * 1000)
 }
@@ -1451,19 +1781,57 @@ const roeCls = computed(() => { const r = valuation.value?.roe; return r == null
 const capText = computed(() => { const m = quote.value.mktcap; return m == null ? '--' : m > 1000 ? '大盘股' : m >= 100 ? '中盘股' : '小盘股' })
 
 // 资金流
-const flowBars = computed(() => {
-  const f = multiFlow.value
-  if (!f) return []
-  const arr = [{ name: '超大单', value: f.super_large ?? 0 }, { name: '大单', value: f.large ?? 0 }, { name: '散户', value: (f.small ?? 0) + (f.medium ?? 0) }]
-  const mx = Math.max(1, ...arr.map(x => Math.abs(x.value)))
-  return arr.map(x => ({ name: x.name, value: x.value, cls: x.value >= 0 ? 'in' : 'out', width: Math.max(10, Math.round(Math.abs(x.value) / mx * 100)) + '%' }))
+const fundFlow = ref(null)        // 今日主力资金 { main, small, medium, large, super_large }
+const intradayFlow = ref([])      // 盘中主力时序 [{time, main, ...}]
+const fiveDayFlow = ref(null)     // 5日vs今日 { today, fiveDay }
+const ptCls = (d) => d > 0 ? 'up' : d < 0 ? 'down' : ''
+const flowRows = computed(() => {
+  const d = fundFlow.value
+  if (!d) return []
+  const arr = [
+    { name: '超大单', value: d.super_large ?? 0 },
+    { name: '大单', value: d.large ?? 0 },
+    { name: '散户', value: (d.small ?? 0) + (d.medium ?? 0) },
+  ]
+  const mx = Math.max(1, ...arr.map(k => Math.abs(k.value)))
+  return arr.map(k => ({
+    name: k.name, value: k.value,
+    cls: k.value >= 0 ? 'in' : 'out',
+    width: Math.max(10, Math.round(Math.abs(k.value) / mx * 100)) + '%',
+  }))
 })
-const flowNotes = computed(() => {
-  const f = multiFlow.value
-  if (!f) return []
+const netCls = computed(() => {
+  const d = fundFlow.value?.main
+  return d == null ? '' : d >= 0 ? 'pulse-in' : 'pulse-out'
+})
+const w5d = computed(() => {
+  const d = fiveDayFlow.value
+  if (!d || d.today == null || d.fiveDay == null) return '0%'
+  const o = Math.max(Math.abs(d.today), Math.abs(d.fiveDay), 1)
+  return Math.max(15, Math.round(Math.abs(d.fiveDay) / o * 100)) + '%'
+})
+const wToday = computed(() => {
+  const d = fiveDayFlow.value
+  if (!d || d.today == null || d.fiveDay == null) return '0%'
+  const o = Math.max(Math.abs(d.today), Math.abs(d.fiveDay), 1)
+  return Math.max(15, Math.round(Math.abs(d.today) / o * 100)) + '%'
+})
+const histInsight = computed(() => {
+  const d = fiveDayFlow.value
+  if (!d || d.today == null || d.fiveDay == null) return ''
+  if (d.fiveDay < 0 && d.today > 0) return '前几天主力在撤、今天转买——刚出现转折，观察是否持续'
+  if (d.fiveDay > 0 && d.today < 0) return '前几天在买、今天在撤——小心资金撤退'
+  if (d.fiveDay > 0 && d.today > 0) return '5天整体净流入，资金持续进场'
+  if (d.fiveDay < 0 && d.today < 0) return '5天整体净流出，资金持续撤离'
+  return ''
+})
+const flowSignals = computed(() => {
+  const d = fundFlow.value
+  if (!d) return []
   const o = []
-  const main = f.main ?? 0, sup = f.super_large ?? 0, lg = f.large ?? 0, small = (f.small ?? 0) + (f.medium ?? 0)
-  const up = (quote.value.change_pct ?? 0) > 0
+  const main = d.main ?? 0, sup = d.super_large ?? 0, lg = d.large ?? 0
+  const small = (d.small ?? 0) + (d.medium ?? 0)
+  const up = (quote.value?.change_pct ?? 0) > 0
   if (main > 0 && up) o.push('主力净买 + 股价上涨，方向一致')
   else if (main > 0 && !up) o.push('主力在买但股价不涨，警惕托底')
   else if (main < 0 && up) o.push('主力在卖但股价在涨，散户抬轿，别追高')
@@ -1476,8 +1844,255 @@ const flowNotes = computed(() => {
     if (small < 0 && main > 0) o.push('散户在卖、主力在买——筹码向主力集中')
     else if (small > 0 && main < 0) o.push('散户在接盘、主力在卖——别当接盘侠')
   }
+  const Z = intradayFlow.value
+  if (Z && Z.length > 60) {
+    const arr = Z.map(rt => rt.main)
+    const mid = arr[Math.floor(arr.length * 0.5)]
+    const last = arr[arr.length - 1]
+    if (last > mid && mid < arr[0]) o.push('早盘先流出、午后买回——买盘集中在下午')
+    else if (last < mid && mid > arr[0]) o.push('早盘流入、午后转出——卖盘集中在下午')
+  }
   return o.slice(0, 3)
 })
+// 估值补充 computed
+const valScoreCls = computed(() => {
+  const d = valuation.value?.verdict
+  return d === '优质标的' || d === '值得关注' ? 'val-good'
+    : d === '亏损' || d === '需谨慎' || d === '基本面弱' ? 'val-bad'
+    : 'val-mid'
+})
+const capType = computed(() => {
+  const m = quote.value?.mktcap
+  return m == null ? '--' : m > 1e3 ? '大盘股' : m >= 100 ? '中盘股' : '小盘股'
+})
+const IND_EXPLAIN = {
+  MA: 'MA=移动平均线：最近N天收盘价的平均价。价格在均线上=近期涨势，线下=跌势；MA5上穿MA10叫"金叉"，偏多',
+  MACD: 'MACD：DIF与DEA的差值关系判断趋势动能。DIF在DEA上方=多头动能占优，金叉偏多、死叉偏空',
+  RSI: 'RSI=相对强弱：衡量近期涨跌力量。>70 超买（短线回调风险），<30 超卖（短线反弹机会）',
+  KDJ: 'KDJ：随机指标，K/D/J 三线判断短线买卖点。K上穿D=金叉偏多；J>100 严重超买，J<0 严重超卖',
+  BOLL: 'BOLL=布林带：中轨是20日均线，上下轨是±2倍标准差。突破上轨=短线过热，跌破下轨=短线超跌',
+  量比: '量比=今日每分钟均量 ÷ 过去5日每分钟均量。>1.5 放量，<0.6 缩量；放量上涨=资金进场，放量下跌=资金出逃',
+  ROE: 'ROE=净资产收益率：公司用股东的钱一年赚百分之几。>15% 优秀（巴菲特标准），<5% 赚钱能力弱',
+  评分: '综合评分 = 均线排列+MACD+RSI+KDJ+BOLL+量能逐项加减分（满分10分）。≥6 强势看多，≤-5 弱势看空',
+}
+const showIndHelp = ref(false)
+// 指标取值辅助（取数组最后一个非空值）
+const indLast = (arr) => { if (!Array.isArray(arr)) return null; for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null }
+const indMa = (n) => indLast(indicators.value?.ma?.[n])
+const indMacd = (k) => indLast(indicators.value?.macd?.[k])
+const indKdj = (k) => indLast(indicators.value?.kdj?.[k])
+const indBoll = (k) => indLast(indicators.value?.boll?.[k])
+const indRsi = computed(() => { const v = indLast(indicators.value?.rsi?.[14]); return v == null ? '--' : v.toFixed(1) })
+const indRsiCls = computed(() => { const v = indLast(indicators.value?.rsi?.[14]); return v == null ? '' : v > 70 ? 'down' : v < 30 ? 'up' : '' })
+const indVolRatio = computed(() => { const v = indLast(indicators.value?.volRatio); return v == null ? '--' : v.toFixed(2) })
+const indVolCls = computed(() => { const v = indLast(indicators.value?.volRatio); return v == null ? '' : v > 1.5 ? 'up' : v < 0.6 ? 'down' : '' })
+const klineAnaToneCls = computed(() => {
+  const t = klineAna.value?.tone
+  return t === 'bear' ? 'val-bad' : t === 'bull' ? 'val-good' : 'val-mid'
+})
+// 主力做局信号（v55 Zf：multiFlow 多周期 + 股东户数）
+const mfSignals = computed(() => {
+  const d = multiFlow.value
+  if (!d) return []
+  const o = []
+  const today = d.today, d20 = d.d20
+  if (today != null && d20 != null && today !== 0) {
+    if (today > 0 && d20 < 0) o.push({ level: 'warn', text: '当日净流入但20日净流出——短期反弹、中期资金在撤' })
+    else if (today < 0 && d20 > 0) o.push({ level: 'good', text: '当日净流出但20日净流入——短期回调、中期资金仍在' })
+  }
+  if ((holderTrend.value?.length ?? 0) >= 2) {
+    const chg = holderTrend.value[0].change
+    if (chg < -3) o.push({ level: 'good', text: `股东户数减少${Math.abs(chg)}%——筹码集中，主力在吸` })
+    else if (chg > 3) o.push({ level: 'warn', text: `股东户数增加${chg}%——筹码分散，警惕派发` })
+  }
+  return o.slice(0, 4)
+})
+// 盘中量价（v55 wm：trends2 计算 VWAP/振幅/强度/密集价位/大单）
+const intraday = ref(null)
+async function loadIntraday() {
+  const secid = cur.value?.secid
+  if (!secid) return
+  try {
+    const trends = await api.getTrends(secid)
+    if (!Array.isArray(trends) || trends.length < 5) return
+    const last = trends[trends.length - 1]
+    const vwap = last?.vwap ?? last?.avg ?? 0
+    const price = quote.value?.price ?? last?.close ?? 0
+    const vsVwap = vwap ? (price - vwap) / vwap * 100 : 0
+    const highs = trends.map(t => t.high).filter(v => v != null)
+    const lows = trends.map(t => t.low).filter(v => v != null)
+    const maxH = Math.max(...highs), minL = Math.min(...lows)
+    const base = trends[0]?.price || price || 1
+    const amplitude = base ? (maxH - minL) / base * 100 : 0
+    // 分时强度：14:00 后涨跌幅
+    const preClose = quote.value?.pre_close ?? trends[0]?.pre_close
+    const lateBar = trends.filter(t => (t.time || '').slice(0, 2) >= '14')
+    const lateClose = lateBar.length ? lateBar[lateBar.length - 1].close ?? lateBar[lateBar.length - 1].price : null
+    const strength = preClose && lateClose ? (lateClose - preClose) / preClose * 100 : 0
+    // 成交密集价位：8 等分区间 vol 占比 >12%
+    const zoneVol = {}, zoneSum = {}
+    const volTot = trends.reduce((s, t) => s + (t.volume || 0), 0)
+    for (const t of trends) {
+      const p = t.price ?? t.close
+      if (!p || !t.volume) continue
+      const idx = Math.min(7, Math.max(0, Math.floor((p - minL) / ((maxH - minL) || 1) * 8)))
+      zoneVol[idx] = (zoneVol[idx] || 0) + t.volume
+      zoneSum[idx] = (zoneSum[idx] || 0) + t.volume * p
+    }
+    const zones = []
+    const step = ((maxH - minL) || 1) / 8
+    for (let i = 0; i < 8; i++) {
+      if ((zoneVol[i] || 0) / (volTot || 1) > 0.12) {
+        const avgP = zoneSum[i] / zoneVol[i]
+        zones.push({
+          price: minL + i * step, price2: minL + (i + 1) * step,
+          pct: Math.round((zoneVol[i] / (volTot || 1)) * 100),
+          type: avgP < vwap ? 'accum' : 'dist',
+        })
+      }
+    }
+    // 大单异动：vol > 3×均量
+    const avgVol = (volTot || 0) / Math.max(1, trends.length)
+    const bigOrders = trends.filter(t => (t.volume || 0) > avgVol * 3).slice(-8).map(t => ({
+      time: t.time, amount: (t.volume || 0) * (t.price ?? t.close ?? 0),
+      type: (t.price ?? t.close) > (t.open ?? t.price) ? 'buy' : 'sell',
+    }))
+    intraday.value = { vwap, vsVwap, amplitude, strength, zones: zones.slice(0, 4), bigOrders }
+  } catch { intraday.value = null }
+}
+// 决策面板
+const STAGE_KEYS = ['absorb', 'pump', 'distribute', 'fall']
+const LIFE_STAGES = [
+  { key: 'absorb', icon: '🐂', label: '吸筹期' },
+  { key: 'pump', icon: '🚀', label: '拉升期' },
+  { key: 'distribute', icon: '🔴', label: '派发期' },
+  { key: 'fall', icon: '🔻', label: '下跌期' },
+]
+const stageIcon = (d) => ({ absorb: '🐂', pump: '🚀', distribute: '🔴', fall: '🔻', range: '⚪' }[d] || '')
+const stageLabel = (d) => ({ absorb: '吸筹期', pump: '拉升期', distribute: '派发期', fall: '下跌期', range: '震荡期' }[d] || d)
+function stageNodeCls(d) {
+  const o = STAGE_KEYS.indexOf(decision.value?.stage)
+  return { ['dp-' + d]: true, done: o > STAGE_KEYS.indexOf(d) && o !== -1 }
+}
+function arrowActive(d) {
+  const o = STAGE_KEYS.indexOf(decision.value?.stage)
+  return o > d && o !== -1
+}
+const listStage = computed(() => {
+  const d = multiFlow.value, o = klineAna.value?.chg_20d
+  return d?.d20 == null || o == null ? null
+    : d.d20 > 0 ? (o > 3 ? 'pump' : 'absorb')
+    : (o > 5 ? 'distribute' : o < -3 ? 'fall' : 'range')
+})
+const decision = computed(() => computeDecision({
+  valuation: valuation.value, klineAna: klineAna.value, paict: paict.value,
+  multiFlow: multiFlow.value, holderTrend: holderTrend.value,
+}))
+// ===== computeDecision（v55 n_ 全量还原）=====
+function computeDecision(s) {
+  const { valuation, klineAna, paict, multiFlow, holderTrend } = s || {}
+  if (!multiFlow && !paict && !klineAna) return null
+  let a = 0
+  const reasons = []
+  const u = multiFlow
+  if ((u?.d20 != null && (
+    u.d20 > 0 ? (a += 2, reasons.push('20日主力净流入')) : u.d20 < 0 && (a -= 2, reasons.push('20日主力净流出')),
+    u.today > 0 && u.d20 < 0 && (a -= 1, reasons.push('当日反弹但中期在撤')),
+    u.today < 0 && u.d20 > 0 && (a += 1, reasons.push('当日回调但中期在进'))
+  ), paict)) {
+    paict.structure === 'up' ? (a += 2, reasons.push('上升结构'))
+      : paict.structure === 'down' ? (a -= 2, reasons.push('下降结构'))
+      : reasons.push('震荡结构')
+    for (const ct of paict.signals || []) ct.dir === 'bullish' ? a += 0.5 : ct.dir === 'bearish' && (a -= 0.5)
+    paict.liquidityText && (a -= 0.5)
+  }
+  if (klineAna?.score != null && klineAna.verdict !== '数据不足') a += (klineAna.score - 5) / 5 * 2
+  if (valuation?.score != null && valuation.verdict !== '暂无估值') a += (valuation.score - 1.5) / 1.5
+  if ((holderTrend?.length ?? 0) >= 2) {
+    const chg = holderTrend[0].change
+    chg < -3 ? (a += 1, reasons.push('筹码集中')) : chg > 3 && (a -= 1, reasons.push('筹码分散'))
+  }
+  const isUp = paict?.structure === 'up'
+  const isDown = paict?.structure === 'down'
+  const d20In = u?.d20 > 0
+  const d20Out = u?.d20 != null && u?.d20 < 0
+  const holderDisperse = (holderTrend?.length ?? 0) >= 2 && holderTrend[0].change > 3
+  const holderConcentrate = (holderTrend?.length ?? 0) >= 2 && holderTrend[0].change < -3
+  const chg20d = klineAna?.chg_20d
+  let stage = 'range', stageIcon_ = '⚪'
+  if (isUp && d20In) { stage = 'pump'; stageIcon_ = '🚀' }
+  else if (isDown && d20Out) { stage = 'fall'; stageIcon_ = '🔻' }
+  else if (d20Out && (holderDisperse || (chg20d != null && chg20d > 10))) { stage = 'distribute'; stageIcon_ = '🔴' }
+  else if (d20In && (holderConcentrate || (!isUp && !isDown && chg20d != null && chg20d < 15))) { stage = 'absorb'; stageIcon_ = '🐂' }
+  const stageLabel_ = { pump: '拉升期', absorb: '吸筹期', distribute: '派发期', fall: '下跌期', range: '震荡期' }[stage]
+  const action = { pump: '持有/加仓', absorb: '分批买入', distribute: '减仓/回避', fall: '观望', range: '等待突破' }[stage]
+  const support = paict?.supports?.[0]
+  const resist = paict?.resistances?.[0]
+  const keySupport = paict?.orderBlocks?.[0]?.price || support
+  const sTxt = support != null ? support.toFixed(2) : '前低'
+  const rTxt = resist != null ? resist.toFixed(2) : '前高'
+  const kTxt = keySupport != null ? keySupport.toFixed(2) : '关键支撑'
+  const advice = {
+    pump: `趋势拉升中，持有为主；回踩 ${kTxt} 可加仓，跌破 ${sTxt} 止损`,
+    absorb: `主力低位吸筹，可分批建仓（回踩 ${kTxt} 分批买）；跌破 ${sTxt} 止损，耐心等拉升`,
+    distribute: `高位筹码松动，减仓/不追高；反弹到 ${rTxt} 分批卖`,
+    fall: `下降结构+资金撤离，观望不买；持有者反弹到 ${rTxt} 减仓`,
+    range: `方向未明，等突破 ${rTxt} 再看；回踩 ${sTxt} 企稳可轻仓试`,
+  }[stage]
+  const risks = []
+  if (u?.today > 0 && u?.d20 < 0) risks.push('当日流入是反弹陷阱，中期资金仍在撤')
+  if (holderDisperse) risks.push('股东户数大增=筹码分散，警惕派发')
+  if (paict != null && paict.liquidityText) risks.push(paict.liquidityText)
+  if (klineAna?.signals != null && klineAna.signals.some((ct) => /顶|见顶/.test(ct))) risks.push('技术面出现见顶信号')
+  const confidence = Math.max(1, Math.min(10, Math.round((a + 6) / 12 * 9 + 1)))
+  return { stage, stageLabel: stageLabel_, stageIcon: stageIcon_, confidence, advice, action, risks: risks.slice(0, 2), reasons: reasons.slice(0, 4) }
+}
+// ===== computeValuation（v55 Qf 全量还原）=====
+function computeValuation(s) {
+  const { pe, pb } = s || {}
+  const roe = pe != null && pb != null && pe !== 0 ? +(pb / pe * 100).toFixed(1) : null
+  if (pe != null && pe < 0) {
+    const pbTxt = pb < 1 ? '破净' : pb < 3 ? '正常' : '偏高'
+    let score = 0
+    if (pb > 0 && pb < 1) score += 1
+    if (s.mktcap > 1e3) score += 1
+    if (roe != null && roe > -10) score += 1
+    return {
+      verdict: '亏损', score, roe: roe ?? null, pe, pb, roe_est: true,
+      summary: `公司当前亏损（PE为负，ROE≈${roe}%），PB=${pb.toFixed(2)}（${pbTxt}）。${pb < 1 ? '股价已跌破净资产，有一定资产支撑，但需警惕亏损扩大' : '估值需结合扭亏进度判断'}。亏损股核心看扭亏拐点与现金流，建议观望为主，谨慎抄底。`,
+      points: [`⚠️ 当前亏损，ROE≈${roe}%`, pb < 1 ? '⚠️ PB<1，股价跌破净资产' : `PB=${pb.toFixed(2)}（${pbTxt}）`, '📌 关注季度报扭亏拐点'],
+    }
+  }
+  if (pe == null) {
+    const pbTxt = pb != null ? (pb < 1 ? '破净' : pb < 3 ? '正常' : '偏高') : null
+    let score = 0
+    if (pb != null && pb < 1) score += 1
+    if (s.mktcap > 1e3) score += 1
+    return {
+      verdict: '暂无估值', score, roe, pe, pb, roe_est: false,
+      summary: `该品种无 PE 数据（指数/ETF 不适用），PB=${pb != null ? pb.toFixed(2) + '（' + pbTxt + '）' : '--'}。可用价格分位或同类对比判断贵贱。`,
+      points: [],
+    }
+  }
+  let pePos
+  pe < 10 ? pePos = '极低（<10）' : pe < 15 ? pePos = '较低（10-15）' : pe < 25 ? pePos = '中等（15-25）' : pe < 40 ? pePos = '偏高（25-40）' : pePos = '极高（>40）'
+  let score = 0
+  if (pe > 0 && pe < 25) score += 2; else if (pe < 40) score += 1
+  if (pb > 0 && pb < 3) score += 2; else if (pb < 6) score += 1
+  if (roe > 15) score += 2; else if (roe > 5) score += 1
+  if (s.mktcap > 1e3) score += 1
+  const verdict = score >= 5 ? '优质标的' : score >= 3 ? '值得关注' : '需谨慎'
+  const points = []
+  if (pe < 15) points.push('✅ PE偏低，估值有安全边际'); else if (pe > 40) points.push('⚠️ PE偏高，注意回调风险')
+  if (roe > 15) points.push('✅ ROE优秀，赚钱能力强')
+  if (pb < 1) points.push('⚠️ PB<1，股价跌破净资产')
+  if (points.length === 0) points.push('估值处于合理区间')
+  return {
+    verdict, score, roe, pe, pb, roe_est: roe != null, pe_pos: pePos,
+    summary: `PE=${pe.toFixed(1)}（${pePos}），PB=${pb.toFixed(2)}，ROE≈${roe}%。综合评分 ${score}/6「${verdict}」`,
+    points,
+  }
+}
 
 // AI 分析
 const aiLoading = ref(false)
@@ -1808,8 +2423,8 @@ async function runBacktest() {
         if (hist.length < 20) continue
         const nxt = kl.find(k => k.time === nextDate)
         if (!nxt) continue
-        const ind = api.computeIndicators(hist)
-        const ana = api.computeKlineAna(hist, ind)
+        const ind = api.computeIndicators(hist, mode.value)
+        const ana = api.computeKlineAna(hist, ind, mode.value)
         const score = btStrategy.value === 'custom' ? customScore(s, hist, ind, ana) : strategyScore(btStrategy.value, s, hist, ind, ana)
         const threshold = btStrategy.value === 'custom' ? factorMin.value : 3
         if (score.total >= threshold) {
