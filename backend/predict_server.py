@@ -2849,8 +2849,24 @@ def mbm_score_market(mode='swing'):
     for rank, idx in enumerate(order):
         pct[idx] = rank / n * 100
     out = []
+    # 批量补股票名（Redis sm:quotes 有 name；缺失显示 code）
+    nmap = {}
+    if _REDIS is not None:
+        try:
+            codes = [it['secid'].split('.')[1] for it in items]
+            vals = _REDIS.hmget('sm:quotes', *codes) if codes else []
+            for it, v in zip(items, vals):
+                try:
+                    if v:
+                        nmap[it['secid'].split('.')[1]] = json.loads(v).get('name', '')
+                except Exception:
+                    pass
+        except Exception:
+            pass
     for i, it in enumerate(items):
-        out.append({'secid': it['secid'], 'code': it['code'],
+        code = it['secid'].split('.')[1]
+        out.append({'secid': it['secid'], 'code': code,
+                    'name': nmap.get(code, code),
                     'score': round(float(scores[i]), 4), 'pct': round(float(pct[i]), 1),
                     'q': 1 + int(min(pct[i], 99.9) // 20)})
     out.sort(key=lambda x: -x['score'])
@@ -2947,24 +2963,28 @@ def mbm_evening_review():
 
 @app.route('/api/mbm-predict')
 def api_mbm_predict():
-    """麦唛预测（GET）：最新存档优先，无则触发打分（21s）"""
+    """麦唛预测（GET）：最新存档优先；无当天存档 → 后台线程打分（避免 HTTP 挂 5 分钟），立即返回最近一次存档"""
     mode = request.args.get('mode') or get_user_mode()
     date_str = now_cst().strftime('%Y-%m-%d')
     c = sqlite3.connect(DB)
     row = c.execute("SELECT data FROM forecast_history WHERE type=? AND date=?",
                     ('mbm_' + mode, date_str)).fetchone()
+    if not row:
+        # 无当天存档：取最近一次（任意日期）作占位，同时后台启动打分
+        last = c.execute("SELECT date, data FROM forecast_history WHERE type=? ORDER BY date DESC LIMIT 1",
+                         ('mbm_' + mode,)).fetchone()
+        c.close()
+        if last:
+            d = json.loads(last[1])
+            d = dict(d)
+            d['stale_date'] = last[0]
+        else:
+            d = {'items': [], 'total': 0, 'q4': [], 'q1': [], 'weights': {}, 'stale_date': None}
+        threading.Thread(target=lambda: run_mbm_forecast(mode=mode), daemon=True).start()
+        return jsonify({'ok': True, 'cached': False, 'pending': True, 'mode': mode, **d})
     c.close()
-    if row:
-        d = json.loads(row[0])
-        return jsonify({'ok': True, 'cached': True, 'mode': mode, **d})
-    try:
-        r = mbm_score_market(mode)
-        if r.get('error'):
-            return jsonify({'ok': False, 'error': r['error']}), 500
-        forecast_save(date_str, 'mbm_' + mode, r)
-        return jsonify({'ok': True, 'cached': False, 'mode': mode, **r})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
+    d = json.loads(row[0])
+    return jsonify({'ok': True, 'cached': True, 'mode': mode, **d})
 
 @app.route('/api/mbm-review', methods=['POST'])
 def api_mbm_review():

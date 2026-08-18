@@ -806,7 +806,7 @@ import { LiveEngine } from './liveEngine.js'
 import KChart from './KChart.vue'
 import './style.css'
 
-const ver = 'v260818-0001'
+const ver = __APP_VERSION__ || 'v260818-0001'
 const base = location.origin + '/'
 const isTrading = () => {
   const d = new Date()
