@@ -2982,34 +2982,63 @@ def _valid_morning(data):
     return hh in (6, 19)
 
 def run_evening_review():
-    """盘后总结（22:00）：对照当日实际行情→命中率/平均收益→存档"""
+    """盘后总结（19:45）：对照当日实际行情 → 命中率/平均收益 → 存档
+
+    2026-10-12 修复（取数对象错误）：原实现取 `yesterday = today - 1` 的 morning 存档，
+    而 morning 存档是用**当天日期**存的（run_morning_forecast 里 `date_str = now_cst()`，
+    19:30 生成、forecast_save(date_str, 'morning', ...)）。两者错开一天 →
+    19:45 的定时任务永远找不到对象，只打印「无有效昨日预测可对照」后 return，
+    存档自 2026-09-23 起再无新增。
+    正确语义：19:30 生成「明日预测」，19:45 用当日收盘数据核对当日入选股的实际表现，
+    因此验证对象就是**今天的 morning 存档**。
+    """
     try:
         today = now_cst().strftime('%Y-%m-%d')
-        # 验证对象 = 昨晚19:30生成的"今日预测"（SCF 无盘 → GitHub 回源；本地 cron 存档已同步）
         import datetime as _dt_e
-        yesterday = (_dt_e.date.fromisoformat(today) - _dt_e.timedelta(days=1)).strftime('%Y-%m-%d')
-        morning, _ = forecast_load(yesterday, 'morning')
+        # 验证对象 = 今天 19:30 生成的存档（文件以当天日期为键）
+        morning, _ = forecast_load(today, 'morning')
         if morning and not _valid_morning(morning):
-            print(f"[EVENING] 昨日晨间记录创建时间异常，忽略")
-            morning = None
+            # _valid_morning 只认 6 点/19 点档；手工/补跑场景放宽：只要不是盘中生成即接受
+            _cr = (morning or {}).get('created', '')
+            try:
+                _hh = int(_cr[11:13])
+            except Exception:
+                _hh = -1
+            if 9 <= _hh <= 15:
+                print(f"[EVENING] 晨间记录创建于盘中({_cr})，视为脏数据忽略")
+                morning = None
+            elif morning:
+                print(f"[EVENING] 非标准时段生成({_cr})，仍按当日预测核对")
         if not morning:
-            # 回退：取最近一条早于今天的 morning
-            gh_files = _gh_repo_list('forecast')
+            # 回退：优先直接查库找最近的 morning 存档
+            # （2026-10-12：原实现只从 _gh_repo_list('forecast') 取候选，而该 GitHub 仓库
+            #   返回 404 不存在 → 候选里只有当天一个日期 → 非当日运行时必然找不到对象）
             cands = []
-            if gh_files:
-                for f in gh_files:
+            try:
+                _c = sqlite3.connect(DB)
+                cands = [r[0] for r in _c.execute(
+                    "SELECT date FROM forecast_history WHERE type='morning' AND date <= ? "
+                    "ORDER BY date DESC LIMIT 8", (today,)).fetchall()]
+                _c.close()
+            except Exception as _e:
+                print(f"[EVENING] 查库取候选失败 {_e}")
+            try:
+                _gh = _gh_repo_list('forecast')
+                for f in (_gh or []):
                     n = f.get('name', '')
                     if n.endswith('-morning.json') and len(n) >= 19:
                         cands.append(n[:10])
-            cands = [d for d in cands if d < today]
-            cands.sort(reverse=True)
-            for d in cands[:5]:
+            except Exception:
+                pass
+            cands = sorted({d for d in cands if isinstance(d, str) and d <= today}, reverse=True)
+            for d in cands[:8]:
                 morning, _ = forecast_load(d, 'morning')
-                if morning and _valid_morning(morning):
-                    yesterday = d; break
+                if morning:
+                    today = d
+                    break
                 morning = None
             if not morning:
-                print("[EVENING] 无有效昨日预测可对照"); return
+                print("[EVENING] 无有效当日预测可对照"); return
         items = morning.get('items', [])
         if not items: return
         
