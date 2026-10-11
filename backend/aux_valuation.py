@@ -36,7 +36,7 @@ def main():
 
     # 1. 估值：2023-01 至今按日
     n = 0
-    for ds in trade_days('2023-01-03', '2026-08-18'):
+    for ds in trade_days('2021-01-04', '2026-08-18'):
         if c.execute('SELECT 1 FROM valuation_daily WHERE date=? LIMIT 1', (ds,)).fetchone():
             continue
         try:
@@ -59,7 +59,7 @@ def main():
                 print(f'估值已补 {n} 天（到 {ds}）', flush=True)
         except Exception as e:
             print(f'val ERR {ds}: {str(e)[:70]}', flush=True)
-        time.sleep(0.8)
+        time.sleep(0.5)
     print(f'估值完成 {n} 天', flush=True)
     print('AUX2_DONE', flush=True)
 

@@ -7,3 +7,13 @@ backend/pred.db-wal
 .DS_Store
 backend/__pycache__/
 .recon/_tmp_*
+
+# 大数据/训练产物（2026-10-12 补：qlib_data 2.7GB，误入 git 会把仓库撑爆）
+backend/qlib_data/
+backend/qlib_data_v2/
+backend/mlruns/
+backend/aux.db
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+deploy/**/*.db
