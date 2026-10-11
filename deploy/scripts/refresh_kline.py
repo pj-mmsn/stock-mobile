@@ -1,7 +1,23 @@
 # -*- coding: utf-8 -*-
 """K线增量更新（15:05 收盘 + 11:30 午休 + 盘中热股）：已有缓存 → 只拉当天新根 append。
-降速：串行 + 0.35s 间隔（全量 5496 只 ≈ 33 分钟——5分钟窗口~850次，低于腾讯ifzq窗口阈值；并发2+0.25s(5min~2400次)曾触发501全灭）"""
-import sys, os, time
+
+降速：串行 + 0.35s 间隔（全量 5496 只 ≈ 33 分钟——5分钟窗口~850次，低于腾讯 ifzq 窗口阈值；
+并发2+0.25s(5min~2400次) 曾触发 501 全灭）
+
+⚠️ 2026-10-12 修复事故（停摆 6 周，数据一根没更新）：
+  1) 本文件 `from predict_server import ...` 漏了 `kline_get`，而 work() 里调用了它
+     → 每只股票都抛 NameError；
+  2) work() 的 `except Exception: return 0` 把异常静默吞掉 → 表现为
+     「正常跑满 32 分钟 + ok=0/5507」，故障完全不可见，连续 6 周无人发现。
+  修复：补 import + 记录并打印异常样本与失败计数 + 结果落错误日志。
+"""
+import sys, os, time, json, traceback
+
+_DEF_LOG = '/opt/stock-mobile/refresh_kline_errors.log'
+_err_samples = []
+_err_count = 0
+
+
 def _read_env_file(path, key):
     try:
         with open(path, encoding='utf-8') as _f:
@@ -21,7 +37,9 @@ os.environ.setdefault('REDIS_URL',
                       or 'redis://127.0.0.1:6379/0')
 os.environ['PRED_DB'] = '/var/lib/stock-mobile/pred.db'
 sys.path.insert(0, '/opt/stock-mobile/backend')
-from predict_server import _kline_incremental, DB, cache_get
+
+# ★ 2026-10-12：kline_get 必须导入（work() 用它比对末根日期，此前遗漏）
+from predict_server import _kline_incremental, kline_get, DB, cache_get
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sqlite3
 
@@ -45,7 +63,8 @@ if mode == 'hot':
         try:
             for it in ((cache_get(ck) or {}).get('items') or []):
                 if it.get('secid'): secids.add(it['secid'])
-        except Exception: pass
+        except Exception:
+            pass
     codes = sorted(secids)
 else:
     codes = [r[0] for r in c.execute('SELECT secid FROM klines').fetchall()]
@@ -56,8 +75,12 @@ print(f'[{mode}] {len(codes)} 只增量（限速串行）...', flush=True)
 
 t0 = time.time()
 done = ok = 0
+
+
 def work(secid):
-    # ok = 数据真更新（末根日期前进），旧缓存兜底不算成功——防假成功掩盖管道故障
+    """返回 1=末根日期前进（真更新），0=未前进，-1=异常。
+    2026-10-12：异常不再静默吞掉——记录样本 + 计数，让管道故障可见。"""
+    global _err_count
     try:
         old = kline_get(secid)
         old_last = old[-1]['t'] if old else ''
@@ -65,17 +88,37 @@ def work(secid):
         if not kl:
             return 0
         return 1 if kl[-1]['t'] > old_last else 0
-    except Exception:
-        return 0
+    except Exception as e:
+        _err_count += 1
+        if len(_err_samples) < 10:
+            _err_samples.append('%s: %r' % (secid, e))
+            _err_samples.append(traceback.format_exc()[:600])
+        return -1
+
 
 with ThreadPoolExecutor(max_workers=1) as ex:
     futs = [ex.submit(work, c2) for c2 in codes]
     for f in as_completed(futs):
         done += 1
-        if f.result():
+        if f.result() == 1:
             ok += 1
         if done % 500 == 0:
-            print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s', flush=True)
+            print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s ok={ok}', flush=True)
         time.sleep(0.35)  # 限速（2026-08-28 串行+0.35s：5分钟窗口~850次，腾讯ifzq窗口安全阈值）
 
-print(f'INCR_DONE mode={mode} ok={ok}/{len(codes)} elapsed={int(time.time()-t0)}s', flush=True)
+line = 'INCR_DONE mode=%s ok=%d/%d errors=%d elapsed=%ds' % (
+    mode, ok, len(codes), _err_count, int(time.time() - t0))
+print(line, flush=True)
+
+# 异常样本落盘（下次故障 5 秒可定位，不用再花几小时）
+if _err_samples:
+    try:
+        with open(_DEF_LOG, 'a', encoding='utf-8') as fh:
+            fh.write('\n===== %s  %s =====\n' % (time.strftime('%F %T'), line))
+            fh.write('\n'.join(str(x) for x in _err_samples))
+            fh.write('\n')
+    except Exception:
+        pass
+    print('  异常样本（前 5 条）:', flush=True)
+    for s in [x for x in _err_samples if not x.startswith('Traceback')][:5]:
+        print('   ', s, flush=True)
