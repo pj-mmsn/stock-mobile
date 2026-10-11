@@ -132,7 +132,7 @@ NameError: name 'kline_get' is not defined
     old = kline_get(secid)
 ```
 
-**根因**：`refresh_kline.py` 的 `from predict_server import _kline_incremental, DB, cache_get`
+**根因（缺陷 #1）**：`refresh_kline.py` 的 `from predict_server import _kline_incremental, DB, cache_get`
 **漏了 `kline_get`**，而 `work()` 调用了它 → 每只股票都抛 `NameError`。
 
 **为什么隐藏了 6 周**：`work()` 的 `except Exception: return 0` 静默吞掉异常，
@@ -141,11 +141,66 @@ NameError: name 'kline_get' is not defined
 **修复**：①补导入 ②异常返回 -1 并计数 ③异常样本+traceback 落盘
 `/opt/stock-mobile/refresh_kline_errors.log` ④进度行打印 `ok` 计数。
 
-**验证**：首次跑 `[0,60)` → `ok=39/60 errors=0`；复跑同一段 → `ok=0/60 errors=0`（幂等正确）。
+### 3.2 缺陷 #2：腾讯 ifzq 的 501 域名级封禁
 
-> 📌 **教训（写进铁律）**：批量任务**必须有"真更新计数"并且该计数被监控**。
-> `ok=0` 这种"合法的零"必须能和"故障的零"区分开——做法是同时报 `errors` 计数，
-> 或者在连续 N 次 `ok=0` 时告警。只输出「任务完成」而不输出「更新了几条」的脚本，
+修掉 import 后重跑，前两段成功（1192/1400、1338/1400），**第三段起又全零**。
+实测发现腾讯 ifzq 对所有代码都返回 `HTTP 501`：
+
+| 时段 | 累计请求 | 腾讯响应 | 结果 |
+|---|---|---|---|
+| SEG1 (0–1400) | ~1400 | 正常 | ok=1192 ✅ |
+| SEG2 (1400–2800) | ~2800 | 正常 | ok=1338 ✅ |
+| SEG3 (2800–4200) | ~4200 | **501 封禁** | ok=0 ❌ |
+| SEG4+ | 封禁中 | 501 | ok=0 ❌ |
+
+**结论**：腾讯 ifzq 连续批量约 1500–2800 只后触发域名级封锁，约 20–30 分钟恢复。
+这也解释了 8-28 当天为何在跑到那里时停住。
+
+**修复**：
+- `_tx_quota_blocked/_tx_quota_trip`：命中 501 后暂停腾讯源 20 分钟
+- `_kline_incremental` 的 `if not page: return cached` 改为**继续下沉到降级源**
+  （原写法在主源被封时直接返回旧缓存，**降级源永远走不到**）
+- 实测降级源可用性：同花顺 6/6、新浪 6/6、东财 0/6（东财 K 线接口已废）
+- 卡在 08-28 的样本 6 只 → 全部前进到 2026-10-09
+
+### 3.3 缺陷 #3：env 未自举 —— 线上读到旧缓存的元凶
+
+**症状**：库里 `prediction_*` 已是 10-12 新数据，K线也补了，但线上 `/api/predict`
+仍返回 `_ts=2026-09-02`，`/api/status` 的 `updated` 也停在 09-02。
+
+**根因**：cron 用 `python -c "from predict_server import ..."` **直接 import 模块，
+没有 source `/etc/stock-mobile.env`**，于是：
+
+| 缺失变量 | 后果 |
+|---|---|
+| `REDIS_URL` | `_REDIS = None` → `cache_set()` 里 `if _REDIS is not None` **静默跳过 Redis 写**，只写 SQLite。而 `cache_get()` 是 **Redis 优先** → 永远读到 Redis 里的旧值 |
+| `PRED_DB` | 连到 `/tmp/pred.db` 空库 → 写进去的预测**直接丢失** |
+
+**修复**：`predict_server.py` 顶部（**必须在 `DB`/`_REDIS` 赋值之前**）加 `_bootstrap_env()`，
+缺失的 `REDIS_URL/PRED_DB/DEEPSEEK_API_KEY` 直接从 `/etc/stock-mobile.env` 补齐；
+并加 `_REDIS.ping()` 启动校验、`cache_set()` 写失败打印告警。
+
+**验证**：`env -i python -c "from predict_server import _REDIS, DB"` →
+`_REDIS 已连接 = True`，`DB = /var/lib/stock-mobile/pred.db` ✅
+
+### 3.4 缺陷 #4：东财 clist 全域名 502
+
+见 §3 开头与「已实施的修复」表 —— `quick_scan()` 的候选池单点依赖已换为腾讯 gtimg 主源。
+
+### 3.5 关于"合法的零"与"故障的零"（本次最贵的教训）
+
+补 K 线时，我先写了「连续 300 只零进展就熔断」——结果**误熔断**：
+SEG1 那 1400 只本来就已是最新交易日，"零进展"完全正常。
+
+于是把判据改成区分两种零：
+- **合法的零**：缓存末根 == 已知最新交易日 → 无事可做
+- **故障的零**：缓存末根 < 最新交易日，却没能更新 → 计入 `stale_fail` 并触发熔断
+
+日志里现在同时输出 `ok` / `errors` / `stale_fail`，三者一起看才能判断管道是否健康。
+
+> 📌 **教训（写进铁律）**：批量任务**必须输出"真更新计数"且该计数要被监控**。
+> `ok=0` 这种"合法的零"必须能和"故障的零"区分开——做法是同时报 `errors`/`stale_fail`，
+> 或在连续 N 次"该更新却没更新"时告警。只输出「任务完成」而不输出「更新了几条」的脚本，
 > 就是在给下一次 6 周停摆铺路。
 
 ### 实测验证数据

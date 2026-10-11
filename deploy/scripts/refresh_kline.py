@@ -75,54 +75,69 @@ print(f'[{mode}] {len(codes)} 只增量（限速串行）...', flush=True)
 
 t0 = time.time()
 done = ok = 0
-_recent = []          # 滚动窗口：最近 N 只的结果（1=更新 0=无变化 -1=异常）
-_ABORT_WINDOW = 300   # 连续 300 只毫无进展 → 判定上游被限流，早退
+_stale_fail = 0       # 「缓存末根落后最新交易日」却没能更新的只数（真故障指标）
+_recent = []          # 滚动窗口：最近 N 只里「该更新却没更新」的标记
+_ABORT_WINDOW = 300   # 连续 300 只该更新却没更新 → 判定上游故障，早退
 _aborted = False
+_LATEST = {'d': ''}   # 最新交易日（从成功更新的结果里学到）
 
 
 def work(secid):
-    """返回 1=末根日期前进（真更新），0=未前进，-1=异常。
-    2026-10-12：异常不再静默吞掉——记录样本 + 计数，让管道故障可见。"""
-    global _err_count
+    """返回 (结果, 是否本该更新)：
+       结果 1=末根日期前进（真更新），0=未前进，-1=异常
+       本该更新 = 更新前缓存末根 < 已知最新交易日
+    2026-10-12：异常不再静默吞掉——记录样本 + 计数，让管道故障可见。
+    2026-10-12 二修：熔断必须区分「已最新的零」（合法，不该熔断）
+                     与「该更新却没更新的零」（故障，应熔断）。"""
+    global _err_count, _stale_fail
     try:
         old = kline_get(secid)
         old_last = old[-1]['t'] if old else ''
         kl = _kline_incremental(secid)
         if not kl:
-            return 0
-        return 1 if kl[-1]['t'] > old_last else 0
+            return 0, True
+        new_last = kl[-1]['t']
+        if new_last > old_last:
+            if new_last > _LATEST['d']:
+                _LATEST['d'] = new_last
+            return 1, True
+        stale = bool(_LATEST['d'] and old_last and old_last < _LATEST['d'])
+        if stale:
+            _stale_fail += 1
+        return 0, stale
     except Exception as e:
         _err_count += 1
         if len(_err_samples) < 10:
             _err_samples.append('%s: %r' % (secid, e))
             _err_samples.append(traceback.format_exc()[:600])
-        return -1
+        return -1, True
 
 
 with ThreadPoolExecutor(max_workers=1) as ex:
     futs = [ex.submit(work, c2) for c2 in codes]
     for f in as_completed(futs):
         done += 1
-        r = f.result()
+        r, stale = f.result()
         if r == 1:
             ok += 1
-        _recent.append(r)
+        # 只有「本该更新却没更新」才计入熔断窗口——已最新的零是合法的零
+        _recent.append(1 if (stale and r != 1) else 0)
         if len(_recent) > _ABORT_WINDOW:
             _recent.pop(0)
-        # 熔断：连续 300 只零进展（且无异常）→ 上游限流，继续跑纯属浪费
         if (not _aborted and len(_recent) >= _ABORT_WINDOW
-                and all(x == 0 for x in _recent)):
+                and all(x == 1 for x in _recent)):
             _aborted = True
-            print('  [ABORT] 连续 %d 只零进展（腾讯 ifzq 疑似 501 限流窗口）'
+            print('  [ABORT] 连续 %d 只「该更新却没更新」（腾讯 501 且降级源也失效？）'
                   '→ 提前结束，避免空跑并延长封禁' % _ABORT_WINDOW, flush=True)
             break
         if done % 500 == 0:
-            print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s ok={ok}', flush=True)
+            print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s ok={ok} '
+                  f'stale_fail={_stale_fail}', flush=True)
         time.sleep(0.35)  # 限速（2026-08-28 串行+0.35s：5分钟窗口~850次，腾讯ifzq窗口安全阈值）
 
-line = 'INCR_DONE mode=%s ok=%d/%d errors=%d elapsed=%ds%s' % (
-    mode, ok, len(codes), _err_count, int(time.time() - t0),
-    ' ABORTED(quota)' if _aborted else '')
+line = 'INCR_DONE mode=%s ok=%d/%d errors=%d stale_fail=%d elapsed=%ds%s' % (
+    mode, ok, len(codes), _err_count, _stale_fail, int(time.time() - t0),
+    ' ABORTED(upstream)' if _aborted else '')
 print(line, flush=True)
 
 # 异常样本落盘（下次故障 5 秒可定位，不用再花几小时）
