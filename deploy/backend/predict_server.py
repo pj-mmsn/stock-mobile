@@ -5,6 +5,35 @@ import json, time, sqlite3, threading, os, sys, re, urllib.request, gzip
 import numpy as np
 from datetime import datetime, timezone, timedelta
 
+
+# ========== 环境变量自举（2026-10-12 修复，必须最先执行）==========
+# 事故：cron 用 `python -c "from predict_server import ..."` 直接 import 本模块，
+# 没有 source /etc/stock-mobile.env → REDIS_URL/PRED_DB 缺失 →
+#   ① _REDIS=None → cache_set() 里 `if _REDIS is not None` 静默跳过 Redis 写入，
+#      只有 SQLite 被写；而 cache_get() 是 Redis 优先 → 线上一直读到 Redis 旧缓存
+#      （prediction_swing/short/long 冻在 09-02 / 09-22 / 08-31，磁盘里其实早是新数据）
+#   ② PRED_DB 缺失 → 连到 /tmp/pred.db 空库 → 写进去的预测全丢
+# 修法：导入本模块时立刻补齐缺失的环境变量。位置必须在 DB/_REDIS 赋值之前！
+def _bootstrap_env(_path='/etc/stock-mobile.env'):
+    try:
+        _need = [k for k in ('REDIS_URL', 'PRED_DB', 'DEEPSEEK_API_KEY') if not os.environ.get(k)]
+        if not _need:
+            return
+        with open(_path, encoding='utf-8') as _f:
+            for _ln in _f:
+                _ln = _ln.strip()
+                if not _ln or _ln.startswith('#') or '=' not in _ln:
+                    continue
+                _k, _v = _ln.split('=', 1)
+                _k = _k.strip(); _v = _v.strip().strip('"').strip("'")
+                if _k in _need and _v:
+                    os.environ[_k] = _v
+    except Exception:
+        pass
+
+
+_bootstrap_env()
+
 _CST = timezone(timedelta(hours=8))  # 北京时间（Render 服务器是 UTC，必须显式转）
 def now_cst():
     """当前北京时间（所有用户可见时间/日期判断都用它）"""
@@ -24,11 +53,14 @@ IS_SCF = (os.environ.get('SCF_RUNTIME') is not None
           or os.environ.get('TENCENTCLOUD_RUNENV') == 'SCF'
           or os.path.exists('/var/user') or os.path.exists('/var/lang'))
 
-# Redis 缓存层（服务器部署时 REDIS_URL 存在 → prediction/realtime 等小缓存走 Redis，秒读写）
+# ========== Redis 缓存层（服务器部署时 REDIS_URL 存在 → prediction/realtime 等小缓存走 Redis，秒读写）==========
 try:
     import redis as _redis_mod
     _REDIS = _redis_mod.Redis.from_url(os.environ['REDIS_URL']) if os.environ.get('REDIS_URL') else None
-except Exception:
+    if _REDIS is not None:
+        _REDIS.ping()          # 启动即校验连通性，避免「以为有 Redis 其实连不上」
+except Exception as _e:
+    print(f'[REDIS] 不可用（{_e}）→ 缓存退化为 SQLite-only；注意 cache_get 不会读到 Redis', flush=True)
     _REDIS = None
 
 # ========== DB ==========
@@ -86,8 +118,14 @@ def cache_set(key, data):
         try:
             ttl = 0  # 永不过期(Redis=数据库, 只覆盖更新)
             _REDIS.set('sm:' + key, js)  # Redis=数据库永不过期, 只覆盖更新
-        except Exception:
-            pass
+        except Exception as _e:
+            # 不能静默：Redis 写失败而 SQLite 成功 → cache_get 会读到旧 Redis 值（曾导致预测冻结 6 周不被发现）
+            print(f'[CACHE] Redis 写 {key} 失败：{_e}（SQLite 仍写入；cache_get 可能读到旧值）', flush=True)
+    else:
+        # 无 Redis 时明确提示一次，避免「以为在写 Redis 其实没写」
+        if not globals().get('_CACHE_NO_REDIS_WARNED'):
+            globals()['_CACHE_NO_REDIS_WARNED'] = True
+            print('[CACHE] _REDIS 未初始化 → 仅写 SQLite；cache_get 的 Redis 分支不会命中', flush=True)
     with sqlite3.connect(DB) as c:
         c.execute('REPLACE INTO cache VALUES (?,?,?)', (key, js, time.time()))
     # SCF 无盘多实例：同步写 COS（实例回收/切换后其他实例可回源）
@@ -962,9 +1000,30 @@ def _mem_put(secid, kl):
             pass
     KLINE_MEM[secid] = kl
 
+_TX_QUOTA = {'blocked_until': 0.0, 'last_log': 0.0}
+
+
+def _tx_quota_blocked():
+    """腾讯 ifzq 是否处于 501 限流封禁窗口（2026-10-12 新增）
+    实测：连续批量约 1500-2800 只后触发 HTTP 501，域名级封禁，约 20-30 分钟恢复。
+    封禁期继续猛打只会延长封禁 —— 命中后直接跳过腾讯，走降级源。"""
+    return time.time() < _TX_QUOTA['blocked_until']
+
+
+def _tx_quota_trip(secid, err):
+    """标记腾讯进入封禁窗口（默认 20 分钟），并打印一次日志（不刷屏）"""
+    now = time.time()
+    _TX_QUOTA['blocked_until'] = now + 1200
+    if now - _TX_QUOTA['last_log'] > 60:
+        _TX_QUOTA['last_log'] = now
+        print(f'[TX-QUOTA] 腾讯 ifzq 触发 501 限流（{secid}: {err}）→ 暂停腾讯源 20 分钟，改用降级源',
+              flush=True)
+
+
 def _kline_incremental(secid):
     """增量更新（当天）：已有全量缓存 → 拉最近800根 → 取新日期根 → append → 写回。
-    比 force_fresh 全量分页省 10 倍请求（历史数据不重拉）"""
+    比 force_fresh 全量分页省 10 倍请求（历史数据不重拉）
+    2026-10-12：腾讯 501 限流改为「熔断 + 降级」而非静默失败"""
     cached = kline_get(secid)
     if not cached or len(cached) < 5:
         # 无缓存 → 全量拉
@@ -973,47 +1032,55 @@ def _kline_incremental(secid):
         code = secid.split('.')[1]
         prefix = 'sh' if code.startswith(('6','9')) else 'sz'
         page = None
-        for host in ('https://ifzq.gtimg.cn/appstock/app/fqkline/get',
-                     'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'):
-            try:
-                url = f'{host}?param={prefix}{code},day,,,800,qfq'
-                req = urllib.request.Request(url, headers={'UA': 'Mozilla/5.0', 'Referer': 'https://gu.qq.com/'})
-                data = json.loads(urllib.request.urlopen(req, timeout=6).read())
-                node = data['data'][f'{prefix}{code}']
-                page = node.get('qfqday') or node.get('day') or []
-                if page:
-                    break
-            except Exception:
-                continue
-        if not page: return cached
-        fresh = [{'t': p[0], 'o': _f(p[1]), 'c': _f(p[2]), 'h': _f(p[3]), 'l': _f(p[4]), 'v': _f(p[5])} for p in page]
-        last_date = cached[-1]['t']
-        new = [k for k in fresh if k['t'] > last_date]
-        if not new:
-            return cached  # 无新数据（当天已是最新）
-        merged = cached + new
-        # 复权漂移检测：新旧重叠区价格偏差 > 1% → 全量重建（复权因子变化）
-        old_map = {k['t']: k['c'] for k in cached[-3:]}
-        drift = False
-        for k in fresh:
-            if k['t'] in old_map and old_map[k['t']] > 0:
-                if abs(k['c'] / old_map[k['t']] - 1) > 0.01:
-                    drift = True
-                    break
-        if drift:
-            # 复权变化：用腾讯最近800根覆盖重叠区（1次请求），不全量重拉
-            # （_kline_tx 12页/只 × 全市场67% drift = 6万请求 → 腾讯窗口瞬间打爆 → 全501）
-            fresh0 = fresh[0]['t']
-            cut = 0
-            for i, k in enumerate(cached):
-                if k['t'] >= fresh0:
-                    cut = i
-                    break
-            merged = cached[:cut] + fresh
+        if not _tx_quota_blocked():
+            for host in ('https://ifzq.gtimg.cn/appstock/app/fqkline/get',
+                         'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'):
+                try:
+                    url = f'{host}?param={prefix}{code},day,,,800,qfq'
+                    req = urllib.request.Request(url, headers={'UA': 'Mozilla/5.0', 'Referer': 'https://gu.qq.com/'})
+                    data = json.loads(urllib.request.urlopen(req, timeout=6).read())
+                    node = data['data'][f'{prefix}{code}']
+                    page = node.get('qfqday') or node.get('day') or []
+                    if page:
+                        break
+                except urllib.error.HTTPError as he:
+                    if he.code == 501:
+                        _tx_quota_trip(secid, '501')
+                        break          # 501 = 域名级封禁，换 host 也没用
+                    continue
+                except Exception:
+                    continue
+        # 主源无数据不再直接返回缓存：继续下沉到降级源
+        # （2026-10-12：腾讯 501 封禁时 page 必为空，原先这里 return 导致降级源永远走不到）
+        if page:
+            fresh = [{'t': p[0], 'o': _f(p[1]), 'c': _f(p[2]), 'h': _f(p[3]), 'l': _f(p[4]), 'v': _f(p[5])} for p in page]
+            last_date = cached[-1]['t']
+            new = [k for k in fresh if k['t'] > last_date]
+            if not new:
+                return cached  # 无新数据（当天已是最新）
+            merged = cached + new
+            # 复权漂移检测：新旧重叠区价格偏差 > 1% → 全量重建（复权因子变化）
+            old_map = {k['t']: k['c'] for k in cached[-3:]}
+            drift = False
+            for k in fresh:
+                if k['t'] in old_map and old_map[k['t']] > 0:
+                    if abs(k['c'] / old_map[k['t']] - 1) > 0.01:
+                        drift = True
+                        break
+            if drift:
+                # 复权变化：用腾讯最近800根覆盖重叠区（1次请求），不全量重拉
+                # （_kline_tx 12页/只 × 全市场67% drift = 6万请求 → 腾讯窗口瞬间打爆 → 全501）
+                fresh0 = fresh[0]['t']
+                cut = 0
+                for i, k in enumerate(cached):
+                    if k['t'] >= fresh0:
+                        cut = i
+                        break
+                merged = cached[:cut] + fresh
+                kline_set(secid, merged)
+                return merged
             kline_set(secid, merged)
             return merged
-        kline_set(secid, merged)
-        return merged
     except Exception:
         pass
     # 主源失败 → 降级: 新浪(250根) → 东财(250根); 仍失败才保持旧缓存

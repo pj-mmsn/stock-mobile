@@ -75,6 +75,9 @@ print(f'[{mode}] {len(codes)} 只增量（限速串行）...', flush=True)
 
 t0 = time.time()
 done = ok = 0
+_recent = []          # 滚动窗口：最近 N 只的结果（1=更新 0=无变化 -1=异常）
+_ABORT_WINDOW = 300   # 连续 300 只毫无进展 → 判定上游被限流，早退
+_aborted = False
 
 
 def work(secid):
@@ -100,14 +103,26 @@ with ThreadPoolExecutor(max_workers=1) as ex:
     futs = [ex.submit(work, c2) for c2 in codes]
     for f in as_completed(futs):
         done += 1
-        if f.result() == 1:
+        r = f.result()
+        if r == 1:
             ok += 1
+        _recent.append(r)
+        if len(_recent) > _ABORT_WINDOW:
+            _recent.pop(0)
+        # 熔断：连续 300 只零进展（且无异常）→ 上游限流，继续跑纯属浪费
+        if (not _aborted and len(_recent) >= _ABORT_WINDOW
+                and all(x == 0 for x in _recent)):
+            _aborted = True
+            print('  [ABORT] 连续 %d 只零进展（腾讯 ifzq 疑似 501 限流窗口）'
+                  '→ 提前结束，避免空跑并延长封禁' % _ABORT_WINDOW, flush=True)
+            break
         if done % 500 == 0:
             print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s ok={ok}', flush=True)
         time.sleep(0.35)  # 限速（2026-08-28 串行+0.35s：5分钟窗口~850次，腾讯ifzq窗口安全阈值）
 
-line = 'INCR_DONE mode=%s ok=%d/%d errors=%d elapsed=%ds' % (
-    mode, ok, len(codes), _err_count, int(time.time() - t0))
+line = 'INCR_DONE mode=%s ok=%d/%d errors=%d elapsed=%ds%s' % (
+    mode, ok, len(codes), _err_count, int(time.time() - t0),
+    ' ABORTED(quota)' if _aborted else '')
 print(line, flush=True)
 
 # 异常样本落盘（下次故障 5 秒可定位，不用再花几小时）

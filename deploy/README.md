@@ -99,7 +99,7 @@ bash -c 'set -a; source /etc/stock-mobile.env; set +a; /opt/stock-mobile/venv/bi
 
 | # | 问题 | 影响 |
 |---|---|---|
-| 1 | **Redis K线 85.8% 停在 2026-08-28** | 6 周无新数据（数据源实测全部正常，代码也正常） |
+| 1 | **Redis K线 85.8% 停在 2026-08-28** | 6 周无新数据。**真凶见下面 §3.1**（不是数据源、不是网络，是脚本漏了一个 import） |
 | 2 | **61 个 cron 僵尸进程**（8-31 起累积） | `env_temperature` 挂死在 `pthread_join`，永不退出；进程+swap 双泄漏（清掉后 swap 8312MB→675MB） |
 | 3 | **每晚备份备错文件** | crontab `cp /tmp/pred.db`（53KB 空壳），真库在 `/var/lib/stock-mobile/pred.db` → 连续一个月无有效备份 |
 | 4 | gunicorn 内存泄漏 | 45 天涨到 787MB，10-09 被 OOM SIGKILL；重启后降到 296MB |
@@ -114,6 +114,39 @@ bash -c 'set -a; source /etc/stock-mobile.env; set +a; /opt/stock-mobile/venv/bi
 | `run_cron.sh` 加 `timeout` 兜底（默认 1800s，env_temperature 300s） | `scripts/run_cron.sh` | `.bak-20261012-003144` |
 | 备份改 `backup_db.py`（SQLite 在线备份 API，原子一致） | `scripts/backup_db.py` | 新增 |
 | 清理 61 个僵尸进程 | — | PID 清单 `/opt/stock-mobile/backup/zombie-clean-20261012-002245/` |
+| **补 `refresh_kline.py` 漏掉的 `kline_get` 导入 + 异常不再静默** | `scripts/refresh_kline.py` | `.bak-importfix-20261012-005708` |
+| 磁盘清理：删 `pred.db.bak-20260820`(2.5GB 旧备份) + `qlib_data_v2`(746MB 可再生) | — | 91% → 83% |
+
+### 3.1 K线停摆 6 周的真凶（最重要的一条）
+
+**症状**：`refresh_kline.log` 连续 6 周 `INCR_DONE mode=all ok=0/5507`，每次都"正常跑满 32 分钟"。
+
+**排查过程**（关键是不能只看日志，要看真相）：
+1. 实测四个数据源 → 全部正常，都能返回到最新交易日
+2. 独立复刻 `work()` 逻辑抽样 100 只 → **91% 成功** → 说明数据源和 `_kline_incremental` 都没问题
+3. 那就只剩「脚本本身」有差异 → 给真实脚本注入调试输出跑一次 → 真相：
+
+```
+NameError: name 'kline_get' is not defined
+  File "refresh_kline.py", line 62, in work
+    old = kline_get(secid)
+```
+
+**根因**：`refresh_kline.py` 的 `from predict_server import _kline_incremental, DB, cache_get`
+**漏了 `kline_get`**，而 `work()` 调用了它 → 每只股票都抛 `NameError`。
+
+**为什么隐藏了 6 周**：`work()` 的 `except Exception: return 0` 静默吞掉异常，
+`ok=0` 与「今天没有新数据」**表现完全一样**，日志没有任何异常痕迹。
+
+**修复**：①补导入 ②异常返回 -1 并计数 ③异常样本+traceback 落盘
+`/opt/stock-mobile/refresh_kline_errors.log` ④进度行打印 `ok` 计数。
+
+**验证**：首次跑 `[0,60)` → `ok=39/60 errors=0`；复跑同一段 → `ok=0/60 errors=0`（幂等正确）。
+
+> 📌 **教训（写进铁律）**：批量任务**必须有"真更新计数"并且该计数被监控**。
+> `ok=0` 这种"合法的零"必须能和"故障的零"区分开——做法是同时报 `errors` 计数，
+> 或者在连续 N 次 `ok=0` 时告警。只输出「任务完成」而不输出「更新了几条」的脚本，
+> 就是在给下一次 6 周停摆铺路。
 
 ### 实测验证数据
 
