@@ -37,7 +37,10 @@ deploy/
 ├── scripts/                         /opt/stock-mobile/ 运维脚本
 │   ├── run_cron.sh                  ★定时任务统一入口（2026-10-12 加超时兜底）
 │   ├── backup_db.py                 ★pred.db 在线原子备份（2026-10-12 新增）
-│   ├── refresh_kline.py             K线增量刷新（cron 主力）
+│   ├── refresh_kline.py             ★K线增量刷新（cron 主力；含补导/熔断/异常计数）
+│   ├── fill_stale.py                ★只补落后的（腾讯限流时的高效补刷，2026-10-12 新增）
+│   ├── scan_kline_freshness.py      ★K线新鲜度全量扫描（不抽样，判"合法零/故障零"）
+│   ├── verify_reviews_e2e.py        ★两个盘后验证函数的端到端验证（副本库+伪装日期）
 │   ├── ths_refresh.py               同花顺批量兜底源
 │   ├── sina_sparse_refresh.py       新浪零星补刷
 │   ├── fill_kline.py / kline_refresh.py / refresh_kline_slow.py
@@ -234,6 +237,63 @@ SEG1 那 1400 只本来就已是最新交易日，"零进展"完全正常。
 > 数据源本身就没有更新，属正常。
 
 **结论：K线补刷这次真的生效了。**（此前 6 周每次 `ok=0`，数据一根没动。）
+
+### 3.7 盘后验证停摆 3 周：两个独立缺陷
+
+`forecast_history` 的 `evening` 与 `mbm_review` 都停在 2026-09-23。这是**两个不同的缺陷**：
+
+**缺陷 A：`run_evening_review` 取数对象错位（主因）**
+
+```python
+# 原实现（错）
+yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+morning, _ = forecast_load(yesterday, 'morning')
+```
+
+morning 存档是以**当天日期**为键存的（`date_str = now_cst()`，19:30 生成 →
+`forecast_save(date_str, 'morning', ...)`）。取 `today - 1` 就**永远错开一天**，
+19:45 的定时任务每次都落到空处，只打印「无有效昨日预测可对照」后 `return`。
+
+**缺陷 B：回退候选来源是个不存在的仓库**
+
+原回退只从 `_gh_repo_list('forecast')` 取候选，而 `github.com/pj-mmsn/stock-mobile-data`
+**返回 404（不存在）** → 候选里只剩当天一个日期 → 非当日运行时必然找不到对象。
+改为优先直接查库：`SELECT date FROM forecast_history WHERE type='morning'`。
+
+**缺陷 C：`mbm_evening_review` 的 T+1 校验被陈旧 K 线拖死**
+
+它要求「预测日当天起至少 2 根 K 线」才能算 T+1 收益。K 线 6 周停在 8-28 →
+任何预测日都凑不出 2 根 → 永远「无可验证标的」。**K 线补齐后自动恢复**（已验证出数）。
+
+**端到端验证方式（不碰生产库，见 `scripts/verify_reviews_e2e.py`）**：
+
+```python
+# 1) SQLite 在线备份 API 把生产库复制到 /tmp
+src = sqlite3.connect('file:/var/lib/stock-mobile/pred.db?mode=ro', uri=True)
+dst = sqlite3.connect('/tmp/pred_review_test.db')
+with dst: src.backup(dst)
+# 2) 让模块用副本库
+os.environ['PRED_DB'] = '/tmp/pred_review_test.db'
+import predict_server as ps
+# 3) 伪装"今天"，真实调用函数
+ps.now_cst = lambda: datetime(2026, 9, 24, 20, 25, tzinfo=...)
+ps.run_evening_review(); ps.mbm_evening_review()
+# 4) 复核生产库未被触碰
+```
+
+结果：
+
+| 函数 | 修复前 | 修复后 |
+|---|---|---|
+| `run_evening_review()` | 无有效预测可对照（静默 return） | `2026-09-22 盘后总结: 命中率77.8% 平均2.58%`（27/27） |
+| `mbm_evening_review()` | 输出空 / winrate 全 null | `2026-09-23 验证: 命中率24% 平均-1.37% (n=98)` |
+| 生产库真实运行 | 停在 09-23 | `2026-10-12 盘后总结: 命中率77.7% 平均2.13%`（1874/1874） |
+
+> ⚠️ **旧存档严重失真**：2026-09-17 / 09-18 的 evening 记录均为
+> 「命中率 **100.0%**、平均涨幅 7.61% / 5.56%」。这是「只取涨幅榜前 500 只」口径的必然产物
+> ——榜单外标的一律查不到 → 不计入 → 分母只剩涨得好的。修复后同一批数据算出 **77.7%**，
+> 才是真实口径。**看到 100% 的验证结果时要先怀疑口径，而不是庆祝模型准。**
+
 
 ---
 
