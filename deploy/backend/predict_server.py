@@ -39,7 +39,7 @@ def now_cst():
     """当前北京时间（所有用户可见时间/日期判断都用它）"""
     return datetime.now(_CST)
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -1100,6 +1100,166 @@ def api_position_advice():
         'reasons': reasons,
         'note': '建议仓位 = 基准60% × 环境系数，再按炸板率与近期超额微调；仅供参考，非投资建议',
     })
+
+
+@app.route('/api/report')
+def api_report():
+    """有效性看板（自包含 HTML，前端无需构建）。
+
+    为什么做成独立页面而不是改主前端：线上前端是 761KB 的**已压缩产物、无源码**，
+    改它风险高（铁律 1/3 要求逐功能对比 + 无头浏览器验证）。
+    本页放在 /api/ 下（nginx 已全量转发），**完全不触碰主包**，零风险，
+    纯前端 fetch 现有接口渲染，随时可下线。
+    """
+    html = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>有效性看板 · 股票分析系统</title>
+<style>
+:root{--bg:#0d1117;--fg:#e6edf3;--dim:#8b949e;--line:#30363d;--up:#3fb950;--down:#f85149;--acc:#a371f7;--warn:#d29922}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:20px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:26px 0 10px;padding-left:9px;border-left:3px solid var(--acc)}
+.sub{color:var(--dim);font-size:12px;margin-bottom:18px}
+.card{background:#161b22;border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.kv{background:#161b22;border:1px solid var(--line);border-radius:8px;padding:12px}
+.kv .lbl{color:var(--dim);font-size:12px}
+.kv .val{font-size:22px;font-weight:600;margin-top:2px}
+.up{color:var(--up)}.down{color:var(--down)}.dim{color:var(--dim)}.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--dim);font-weight:500;font-size:12px}
+tr:hover td{background:#1c2128}
+.bar{height:7px;border-radius:4px;background:#21262d;position:relative;overflow:hidden;min-width:70px}
+.bar i{position:absolute;top:0;bottom:0;left:50%}
+.bar i.p{background:var(--up)}.bar i.n{background:var(--down)}
+.err{color:var(--down);font-size:12px}
+.note{color:var(--dim);font-size:12px;margin-top:6px}
+code{background:#21262d;padding:1px 5px;border-radius:4px;font-size:12px}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;font-size:13px}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+</style></head><body><div class="wrap">
+<h1>股票分析系统 · 有效性看板</h1>
+<div class="sub">回答三个问题：<b>系统选股有没有超额</b>、<b>哪些信号真的有效</b>、<b>照它给的入场/止损执行会怎样</b>。<span id="ts"></span></div>
+
+<h2>一、建议仓位</h2>
+<div id="pos"><div class="card dim">加载中…</div></div>
+
+<h2>二、累计超额曲线（策略收益 − 全市场基准）</h2>
+<div class="card"><div id="alpha">加载中…</div><div class="note" id="alphaNote"></div></div>
+
+<h2>三、信号有效性（无偏回测：完整候选池 + 后续真实收益）</h2>
+<div class="card"><div id="sig">加载中…</div>
+<div class="note">权重 = clamp(1 + 有效性 × 样本收缩, 0.1, 3.0)。有效性=0 时权重为 1，与旧"数信号个数"完全等价；正效应&gt;1、负效应&lt;1。权重用于预测列表的 <code>rank_score</code> 排序。</div></div>
+
+<h2>四、模拟账户：照系统给的入场/止损/目标执行</h2>
+<div class="card">
+<div class="flex" style="margin-bottom:10px">
+  <span class="dim">模式</span><span id="mBtns"></span>
+  <span class="dim" style="margin-left:12px">持仓上限</span><span id="hBtns"></span>
+  <span class="dim" style="margin-left:12px">止损</span><span id="sBtns"></span>
+</div>
+<div id="paper">加载中…</div>
+<div class="note">同日同时触及止损与止盈时，保守假设先触发止损。基准=各入场日的全市场平均涨跌。</div>
+</div>
+
+<h2>五、数据健康</h2>
+<div class="card"><div id="health">加载中…</div></div>
+
+<div class="sub" style="margin-top:26px">本页为独立看板，不依赖主前端包；数据来自 <code>/api/*</code> 实时接口。</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const f=(n,d=2)=>(n===null||n===undefined||isNaN(n))?'-':Number(n).toFixed(d);
+const sg=n=>(n>0?'up':(n<0?'down':'dim'));
+const pct=n=>(n===null||n===undefined)?'-':(n>0?'+':'')+Number(n).toFixed(2)+'%';
+$('ts').textContent=' 数据时间 '+new Date().toLocaleString('zh-CN');
+async function J(u){const r=await fetch(u);if(!r.ok)throw new Error(u+' HTTP '+r.status);return r.json();}
+function bar(v,max){const w=Math.min(50,Math.abs(v)/max*50);return '<div class="bar"><i class="'+(v>=0?'p':'n')+'" style="'+(v>=0?'left:50%;width:'+w+'%':'right:50%;left:auto;width:'+w+'%')+'"></i></div>';}
+
+// 一、建议仓位
+J('/api/position-advice').then(d=>{
+  const p=d.position_pct;
+  $('pos').innerHTML='<div class="grid">'
+   +'<div class="kv"><div class="lbl">建议仓位</div><div class="val '+(p>=60?'up':(p>=35?'warn':'down'))+'">'+f(p,0)+'%</div><div class="lbl">区间 '+d.range[0]+'% ~ '+d.range[1]+'%</div></div>'
+   +'<div class="kv"><div class="lbl">市场阶段</div><div class="val" style="font-size:18px">'+((d.env||{}).phase||'-')+'</div><div class="lbl">环境系数 '+f(d.env_coef)+'</div></div>'
+   +'<div class="kv"><div class="lbl">近期平均超额</div><div class="val '+(d.alpha_recent&&d.alpha_recent.avg_alpha>0?'up':'dim')+'">'+(d.alpha_recent&&d.alpha_recent.n?pct(d.alpha_recent.avg_alpha):'样本不足')+'</div><div class="lbl">'+(d.alpha_recent&&d.alpha_recent.n?('近 '+d.alpha_recent.n+' 次验证'):'不做策略调仓')+'</div></div>'
+   +'</div><div class="note">'+d.reasons.map(r=>'· '+r).join('<br>')+'</div>';
+}).catch(e=>$('pos').innerHTML='<div class="card err">'+e.message+'</div>');
+
+// 二、超额曲线
+J('/api/alpha-curve').then(d=>{
+  let h='',tot=0;
+  (d.series||[]).forEach(s=>{
+    const rows=s.rows||[];
+    h+='<div style="margin-bottom:14px"><b>'+(s.name==='evening'?'主预测（明日预测）':'麦唛 ICIR 模型')+'</b> <span class="dim">可信 ' + rows.length + ' 天';
+    if(s.biased_days)h+=' · 已排除 '+s.biased_days+' 天有选择偏差的旧记录';
+    h+='</span>';
+    if(!rows.length){h+='<div class="dim" style="margin-top:6px">暂无可信样本 —— 度量体系刚恢复，需积累数日</div></div>';return;}
+    h+='<table style="margin-top:6px"><tr><th>交易日</th><th>只数</th><th>命中率</th><th>策略均涨</th><th>基准均涨</th><th>超额</th><th>累计超额</th><th>曲线</th></tr>';
+    rows.forEach(r=>{h+='<tr><td>'+r.date+'</td><td>'+r.total+'</td><td>'+f(r.winrate,1)+'%</td><td class="'+sg(r.avg)+'">'+pct(r.avg)+'</td><td class="dim">'+pct(r.bench_avg)+'</td><td class="'+sg(r.alpha_avg)+'"><b>'+pct(r.alpha_avg)+'</b></td><td class="'+sg(r.cum_alpha)+'">'+pct(r.cum_alpha)+'</td><td>'+bar(r.cum_alpha,Math.max(1,Math.abs(r.cum_alpha)))+'</td></tr>';});
+    h+='</table></div>';
+  });
+  const sm=d.summary||{};let sh='';
+  for(const k in sm){const s=sm[k];sh+='<div class="kv"><div class="lbl">'+(k==='evening'?'主预测':'麦唛')+' 累计超额</div><div class="val '+sg(s.cum_alpha)+'">'+pct(s.cum_alpha)+'</div><div class="lbl">'+s.days+' 天 · 胜 '+s.win_days+' 负 '+s.loss_days+'</div></div>';}
+  $('alpha').innerHTML=(sh?'<div class="grid" style="margin-bottom:14px">'+sh+'</div>':'')+h;
+  $('alphaNote').textContent=d.pending?('另有 '+d.pending+' 条记录待预计算（每日 20:40 cron 补齐）'):'';
+}).catch(e=>$('alpha').innerHTML='<div class="err">'+e.message+'</div>');
+
+// 三、信号有效性
+J('/api/signal-stats').then(d=>{
+  const eff=d.effects||{},w=d.weights||{};
+  const ks=Object.keys(w).sort((a,b)=>(w[b]||0)-(w[a]||0));
+  const mx=Math.max(0.1,...ks.map(k=>Math.abs((eff[k]||{}).effect||0)));
+  let h='<table><tr><th>信号</th><th>有效性</th><th>触发组</th><th>未触发组</th><th>样本</th><th>权重</th><th>强度</th></tr>';
+  ks.forEach(k=>{const e=eff[k]||{};h+='<tr><td>'+k.replace('sig_','')+'</td><td class="'+sg(e.effect)+'"><b>'+(e.effect>0?'+':'')+f(e.effect)+'%</b></td><td class="dim">'+pct(e.on_avg)+'</td><td class="dim">'+pct(e.off_avg)+'</td><td class="dim">'+(e.on_n||0)+'</td><td>'+f(w[k],3)+'</td><td>'+bar(e.effect||0,mx)+'</td></tr>';});
+  h+='</table>';
+  $('sig').innerHTML='<div class="dim" style="margin-bottom:8px">回测来源：'+(d.w_src||'-')+' · '+(d.fit_days||0)+' 天</div>'+h;
+}).catch(e=>$('sig').innerHTML='<div class="err">'+e.message+'</div>');
+
+// 四、模拟账户
+let PM='short',PH=5,PS='1';
+function mkBtns(id,items,cur,cb){$(id).innerHTML=items.map(x=>'<button class="'+(String(x[0])===String(cur)?'on':'')+'" data-v="'+x[0]+'">'+x[1]+'</button>').join(' ');$(id).querySelectorAll('button').forEach(b=>b.onclick=()=>cb(b.dataset.v));}
+function renderPaper(){
+  mkBtns('mBtns',[['short','⚡超短'],['swing','📈波段'],['long','🏦长线']],PM,v=>{PM=v;renderPaper();});
+  mkBtns('hBtns',[[3,'3天'],[5,'5天'],[10,'10天'],[20,'20天']],PH,v=>{PH=v;renderPaper();});
+  mkBtns('sBtns',[['1','用系统止损'],['0','不用止损']],PS,v=>{PS=v;renderPaper();});
+  $('paper').innerHTML='<div class="dim">加载中…</div>';
+  J('/api/paper-trade?mode='+PM+'&days=30&hold='+PH+'&use_stop='+PS+'&top=20').then(d=>{
+    const s=d.summary||{};
+    if(!s.trades){$('paper').innerHTML='<div class="dim">无成交（该模式样本不足）</div>';return;}
+    const ex=s.exit_mix||{};
+    $('paper').innerHTML='<div class="grid" style="margin-bottom:12px">'
+     +'<div class="kv"><div class="lbl">交易笔数</div><div class="val">'+s.trades+'</div></div>'
+     +'<div class="kv"><div class="lbl">胜率</div><div class="val '+(s.win_rate>=50?'up':'down')+'">'+f(s.win_rate,1)+'%</div></div>'
+     +'<div class="kv"><div class="lbl">平均收益</div><div class="val '+sg(s.avg_ret)+'">'+pct(s.avg_ret)+'</div></div>'
+     +'<div class="kv"><div class="lbl">全市场基准</div><div class="val dim">'+pct(s.bench_avg)+'</div></div>'
+     +'<div class="kv"><div class="lbl">超额</div><div class="val '+sg(s.alpha_vs_bench)+'">'+pct(s.alpha_vs_bench)+'</div></div>'
+     +'<div class="kv"><div class="lbl">盈亏比</div><div class="val '+(s.profit_factor>=1?'up':'down')+'">'+f(s.profit_factor)+'</div></div>'
+     +'</div>'
+     +'<div class="dim">离场结构：'+Object.keys(ex).map(k=>k+' '+ex[k]+' 笔').join(' · ')+'</div>'
+     +'<div class="note" style="margin-top:10px">最好 '+pct(s.best)+' · 最差 '+pct(s.worst)+' · 中位数 '+pct(s.median_ret)
+     +'　<span class="'+(s.alpha_vs_bench>0?'up':'down')+'">'+(s.alpha_vs_bench>0?'选股有正超额，但绝对收益取决于市场环境':'跑输全市场基准')+'</span></div>';
+  }).catch(e=>$('paper').innerHTML='<div class="err">'+e.message+'</div>');
+}
+renderPaper();
+
+// 五、数据健康
+Promise.all([J('/api/status'),J('/api/signal-stats').catch(()=>({})),J('/api/alpha-curve').catch(()=>({}))]).then(([st])=>{
+  const u=st.updated||'';
+  const age=u?(Date.now()-new Date(u).getTime())/3600000:null;
+  $('health').innerHTML='<div class="grid">'
+   +'<div class="kv"><div class="lbl">预测只数</div><div class="val">'+(st.pred_items||'-')+'<span class="dim" style="font-size:14px"> / '+(st.pred_total||'-')+'</span></div><div class="lbl">阶段 '+((st.pred_stage)||'-')+'</div></div>'
+   +'<div class="kv"><div class="lbl">预测更新时间</div><div class="val" style="font-size:15px">'+(u?u.replace('T',' ').slice(5,16):'-')+'</div><div class="lbl '+(age!==null&&age>36?'warn':'')+'">'+(age!==null?('距今 '+f(age,1)+' 小时'):'')+'</div></div>'
+   +'</div>';
+}).catch(e=>$('health').innerHTML='<div class="err">'+e.message+'</div>');
+</script></body></html>"""
+    return Response(html, mimetype='text/html; charset=utf-8')
 
 
 @app.route('/api/signal-stats')
