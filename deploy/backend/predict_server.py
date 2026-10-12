@@ -4096,6 +4096,21 @@ def run_morning_forecast(strip_last=False, mode=None, batch=None):
             except Exception: batch = -1
             if batch in (0, 1):
                 to_run = [batch]
+        else:
+            # ★ 2026-10-13：batch=None = **全量重跑**（两批连跑，结果自足）→
+            #   先清掉本模式当天的旧记录，从零重建。
+            #   否则会在上一次的结果上继续做**并集**合并，而并集只增不减：
+            #   一旦记录被污染过（或上次是别的模式写的），后续每次重跑都洗不干净。
+            try:
+                import sqlite3 as _sq
+                _c = _sq.connect(DB)
+                _c.execute('DELETE FROM forecast_history WHERE date=? AND type=?',
+                           (date_str, 'morning_' + mode))
+                _c.commit()
+                _c.close()
+                print(f'[MORNING] 全量重跑：已清空 {date_str} 的 morning_{mode} 旧记录', flush=True)
+            except Exception as _e:
+                print(f'[MORNING] 清旧记录失败（继续，可能残留并集）: {_e}')
         for b in to_run:
             if slices.get(b):
                 _run_forecast_batch(slices[b], total, date_str, mode, strip_last, b)
