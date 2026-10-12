@@ -17,3 +17,7 @@ backend/*.db
 backend/*.db-shm
 backend/*.db-wal
 deploy/**/*.db
+
+# Python ×Ö½ÚÂë»º´æ
+__pycache__/
+*.pyc
