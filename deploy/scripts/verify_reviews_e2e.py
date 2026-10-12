@@ -86,9 +86,26 @@ for t in ('evening', 'mbm_review'):
 c.close()
 
 print()
-print("=== 5) 生产库未被触碰（evening 最新仍应为 2026-09-23）===")
+print("=== 5) 生产库复核（应与运行前一致）===")
 c2 = sqlite3.connect('file:%s?mode=ro' % SRC_DB, uri=True)
 for t in ('evening', 'mbm_review'):
     mx = c2.execute("SELECT max(date) FROM forecast_history WHERE type=?", (t,)).fetchone()[0]
     print("  生产库 %-12s 最新 = %s" % (t, mx))
 c2.close()
+
+# ★ 必须清理自己产生的库副本。
+# 2026-10-12 教训：本脚本创建的副本和主库一样大（约 2.5GB），
+# 漏删两次就把 40GB 分区从 78% 顶到 85%，差点让半夜的自动备份失败。
+# 规则：诊断类脚本一律在最后删掉自己的大体积中间产物。
+try:
+    if os.path.exists(TMP_DB):
+        _sz = os.path.getsize(TMP_DB) / 1073741824.0
+        os.remove(TMP_DB)
+        print()
+        print("  ✅ 已清理临时副本 %s（%.2f GB）" % (TMP_DB, _sz))
+    else:
+        print()
+        print("  （临时副本已不存在）")
+except Exception as _e:
+    print()
+    print("  !! 清理临时副本失败，请手动删除 %s（%r）" % (TMP_DB, _e))
