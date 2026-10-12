@@ -1,17 +1,28 @@
 # -*- coding: utf-8 -*-
 """只处理「落后于最新交易日」的 K 线 —— 先快速分类，再只补落后的。
+
 2026-10-12 新增：腾讯 501 封禁时降级源很慢（每只 1-3s），
-必须避免对已最新的股票做无用请求（否则 5500 只 × 1.5s ≈ 2.3 小时）。"""
+必须避免对已最新的股票做无用请求（否则 5500 只 × 1.5s ≈ 2.3 小时）。
+
+2026-10-12 修正（基准错误）：原实现用「众数」判最新交易日 ——
+    LATEST = max(cnt, key=lambda d: (cnt[d], d))
+当只有部分股票被更新时（如 hot 只刷了预测池 1802/5508），**旧日期反而成了众数**
+→ LATEST 被错判成旧日期 → 判定"几乎全部已最新" → 只补了 299/3700。
+改为「观测到的最大日期」（且不得晚于今天）。
+—— 这与 L1a（漏导入）、L1b（锁饿死）属同一类错误：判定"新鲜度"的基准本身是错的。
+"""
 import sys
 import os
 import gzip
 import json
 import time
 import collections
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, '/opt/stock-mobile/backend')
 from predict_server import _REDIS, kline_get, _kline_incremental, DB
 
+_CST = timezone(timedelta(hours=8))
 t0 = time.time()
 
 # ---------- 1) 快速分类 ----------
@@ -34,12 +45,20 @@ for k in keys:
         last = ''
     rows.append((sid, last))
 
-# 最新交易日 = 出现最多的那个「近期」日期（取众数里最大的）
+# ★ 2026-10-12 修正（基准错误）：原实现用「众数」判最新交易日：
+#     LATEST = max(cnt, key=lambda d: (cnt[d], d))
+#   当只有部分股票被更新时（如 hot 只刷了预测池 1802/5508），**旧日期反而成了众数**
+#   → LATEST 被错判成旧日期 → 判定"几乎全部已最新" → 只补了 299/3700 只。
+#   这是与 L1a/L1b 同一类错误：判定"新鲜度"的基准本身是错的。
+#   修法：用「观测到的最大日期」（且不得晚于今天）作基准。
 cnt = collections.Counter(d for _, d in rows if d >= '2026-09-01')
-LATEST = max(cnt, key=lambda d: (cnt[d], d)) if cnt else ''
+_today = datetime.now(_CST).strftime('%Y-%m-%d')
+_recent = [d for d in cnt if d <= _today]
+LATEST = max(_recent) if _recent else ''
 print("总键数 = %d" % len(rows))
 print("判定最新交易日 = %s（%d 只，占 %.1f%%）" % (LATEST, cnt.get(LATEST, 0),
                                        cnt.get(LATEST, 0) * 100.0 / max(1, len(rows))))
+print("日期分布(前6): %s" % cnt.most_common(6))
 print("分类耗时 %.0fs" % (time.time() - t0))
 
 stale = [sid for sid, d in rows if not d or d < LATEST]
