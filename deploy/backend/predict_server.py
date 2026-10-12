@@ -2982,87 +2982,107 @@ def _valid_morning(data):
     return hh in (6, 19)
 
 def run_evening_review():
-    """盘后总结（19:45）：对照当日实际行情 → 命中率/平均收益 → 存档
+    """盘后总结（19:45）：用**当日实际行情**核对「预测今天」的那份存档 → 命中率/平均收益
 
-    2026-10-12 修复（取数对象错误）：原实现取 `yesterday = today - 1` 的 morning 存档，
-    而 morning 存档是用**当天日期**存的（run_morning_forecast 里 `date_str = now_cst()`，
-    19:30 生成、forecast_save(date_str, 'morning', ...)）。两者错开一天 →
-    19:45 的定时任务永远找不到对象，只打印「无有效昨日预测可对照」后 return，
-    存档自 2026-09-23 起再无新增。
-    正确语义：19:30 生成「明日预测」，19:45 用当日收盘数据核对当日入选股的实际表现，
-    因此验证对象就是**今天的 morning 存档**。
+    2026-10-12 修复：原实现两个问题叠加，导致自 2026-09-23 起再无新增
+    （只打印「无有效昨日预测可对照」后 return）。
+
+    ▌语义（关键）：key 为 D 的 morning 存档是 **D 日 19:30 生成、预测下一个交易日** 的。
+      因此"今天 T 的盘后总结"要核对的对象 = key **早于 T** 的最近一份 morning 存档
+      （它预测的正是今天）；而不是今天 19:30 刚生成的那份（那份预测的是明天）。
+      原代码用 `yesterday` 找对象，**意图是对的**。
+
+    ▌缺陷 A：回退候选只来自 `_gh_repo_list('forecast')`，而该 GitHub 仓库返回 **404 不存在**
+      → 候选只剩一个日期 → 周末/节假日（T-1 非交易日）必然找不到对象。
+      修法：优先直接查库 `SELECT date FROM forecast_history WHERE type='morning' AND date < ?`。
+
+    ▌缺陷 B：`_valid_morning` 只认 6 点/19 点档，补跑与手工场景会被误判为脏数据。
+      修法：只拒绝 9-15 点（盘中）生成的记录。
+
+    注：实际涨跌取「**今天**」—— 与预测目标日一致。原始实现在此处口径也有偏
+    （只取涨幅榜前 500 只，榜单外标的必查不到 → 恒报 100%），已改为全市场三级取数。
     """
     try:
         today = now_cst().strftime('%Y-%m-%d')
-        import datetime as _dt_e
-        # 验证对象 = 今天 19:30 生成的存档（文件以当天日期为键）
-        morning, _ = forecast_load(today, 'morning')
-        if morning and not _valid_morning(morning):
-            # _valid_morning 只认 6 点/19 点档；手工/补跑场景放宽：只要不是盘中生成即接受
-            _cr = (morning or {}).get('created', '')
+
+        # ---- 选目标：key 早于 today 的最近一份有效 morning 存档 ----
+        cands = []
+        try:
+            _c = sqlite3.connect(DB)
+            cands = [r[0] for r in _c.execute(
+                "SELECT date FROM forecast_history WHERE type='morning' AND date < ? "
+                "ORDER BY date DESC LIMIT 8", (today,)).fetchall()]
+            _c.close()
+        except Exception as _e:
+            print(f"[EVENING] 查库取候选失败 {_e}")
+        try:
+            for f in (_gh_repo_list('forecast') or []):
+                n = f.get('name', '')
+                if n.endswith('-morning.json') and len(n) >= 19 and n[:10] < today:
+                    cands.append(n[:10])
+        except Exception:
+            pass
+
+        morning = None
+        pred_date = None
+        for d in sorted({x for x in cands if isinstance(x, str) and x < today}, reverse=True)[:8]:
+            m, _ = forecast_load(d, 'morning')
+            if not m or not (m.get('items')):
+                continue
+            _cr = m.get('created', '')
             try:
                 _hh = int(_cr[11:13])
             except Exception:
                 _hh = -1
             if 9 <= _hh <= 15:
-                print(f"[EVENING] 晨间记录创建于盘中({_cr})，视为脏数据忽略")
-                morning = None
-            elif morning:
-                print(f"[EVENING] 非标准时段生成({_cr})，仍按当日预测核对")
+                print(f"[EVENING] {d} 的存档创建于盘中({_cr})，视为脏数据跳过")
+                continue
+            morning = m
+            pred_date = d
+            break
         if not morning:
-            # 回退：优先直接查库找最近的 morning 存档
-            # （2026-10-12：原实现只从 _gh_repo_list('forecast') 取候选，而该 GitHub 仓库
-            #   返回 404 不存在 → 候选里只有当天一个日期 → 非当日运行时必然找不到对象）
-            cands = []
-            try:
-                _c = sqlite3.connect(DB)
-                cands = [r[0] for r in _c.execute(
-                    "SELECT date FROM forecast_history WHERE type='morning' AND date <= ? "
-                    "ORDER BY date DESC LIMIT 8", (today,)).fetchall()]
-                _c.close()
-            except Exception as _e:
-                print(f"[EVENING] 查库取候选失败 {_e}")
-            try:
-                _gh = _gh_repo_list('forecast')
-                for f in (_gh or []):
-                    n = f.get('name', '')
-                    if n.endswith('-morning.json') and len(n) >= 19:
-                        cands.append(n[:10])
-            except Exception:
-                pass
-            cands = sorted({d for d in cands if isinstance(d, str) and d <= today}, reverse=True)
-            for d in cands[:8]:
-                morning, _ = forecast_load(d, 'morning')
-                if morning:
-                    today = d
-                    break
-                morning = None
-            if not morning:
-                print("[EVENING] 无有效当日预测可对照"); return
+            print("[EVENING] 无有效预测可对照（早于今天的 morning 存档不存在或全为脏数据）")
+            return
+        print(f"[EVENING] 核对对象 = {pred_date} 的 morning 存档（明日预测；目标交易日随后从 K 线解析）")
         items = morning.get('items', [])
         if not items: return
-        
-        # 拉这些股票当日实际涨跌（收盘后数据）
-        # 【2026-10-12 修复】原实现只取涨幅榜前 5 页=500 只（东财 clist，现网 502），
-        # 命中率字面恒为 100% 且 9-23 起完全无输出。改为全市场覆盖：
-        # ①服务端 K 线末根=今日（最准，收盘后已有当日 bar）→ ②腾讯 qt 批量报价兜底
+
+        # ---- 取「实际涨跌」----
+        # 口径：预测 key 为 D 的存档，其目标交易日 = D 之后的第一个交易日（从 K 线解析，
+        #       不靠自然日推算，周末/节假日/存档缺口都不会错位）。
+        # 原实现两个问题：①只取涨幅榜前 5 页=500 只（东财 clist，现网 502），
+        #                榜单外标的必查不到 → 命中率字面恒为 100%；
+        #                ②直接用 today，在 morning 存档有缺口时会核对错日子。
+        # 现在：K 线解析出目标日并算该日涨跌幅 → 腾讯 qt 批量兜底 → 东财 clist 末位兜底。
         codes = [i['code'] for i in items]
         _codeset = set(codes)
         actual = {}
-        _today = now_cst().strftime('%Y-%m-%d')
         _kl_hits = 0
+        _day_seen = {}
         _secids = [str(i.get('secid') or (('1.' if str(i['code']).startswith(('6', '9')) else '0.') + str(i['code']))) for i in items]
         for _c, _sid in zip(codes, _secids):
             try:
                 _kl = kline_get(_sid)
-                if _kl and str(_kl[-1].get('t'))[:10] == _today:
-                    _prev = _kl[-2].get('c') if len(_kl) >= 2 else None
-                    _cur = _kl[-1].get('c')
-                    if _prev and _cur:
-                        actual[_c] = round((_cur / _prev - 1) * 100, 2)
-                        _kl_hits += 1
+                if not _kl or len(_kl) < 2:
+                    continue
+                # 目标交易日 = K 线里第一个 > pred_date 的日期
+                _idx = None
+                for _i, _k in enumerate(_kl):
+                    if str(_k.get('t'))[:10] > pred_date:
+                        _idx = _i
+                        break
+                if _idx is None or _idx < 1:
+                    continue
+                _prev = _kl[_idx - 1].get('c')
+                _cur = _kl[_idx].get('c')
+                if _prev and _cur:
+                    actual[_c] = round((_cur / _prev - 1) * 100, 2)
+                    _day_seen[str(_kl[_idx].get('t'))[:10]] = _day_seen.get(str(_kl[_idx].get('t'))[:10], 0) + 1
+                    _kl_hits += 1
             except Exception:
                 pass
+        # 目标交易日众数（用于日志与存档日期）
+        actual_day = max(_day_seen, key=_day_seen.get) if _day_seen else now_cst().strftime('%Y-%m-%d')
         if len(actual) < len(codes):
             try:
                 for _r in _fetch_tx_qt(_secids):
@@ -3083,7 +3103,7 @@ def run_evening_review():
                             except: actual[c] = 0
                 except: pass
                 if len(actual) >= len(codes): break
-        print(f'[EVENING] 实际涨跌覆盖 {len(actual)}/{len(codes)} 只（K线命中 {_kl_hits}）')
+        print(f'[EVENING] 目标交易日 = {actual_day}；实际涨跌覆盖 {len(actual)}/{len(codes)} 只（K线命中 {_kl_hits}）')
         
         # 统计
         reviewed = []
@@ -3104,16 +3124,19 @@ def run_evening_review():
         hi_wr = round(sum(1 for r in hi if r['actual_chg']>0) / len(hi) * 100, 1) if hi else None
         lo_wr = round(sum(1 for r in lo if r['actual_chg']>0) / len(lo) * 100, 1) if lo else None
         
-        summary = (f'盘后总结：入选 {total} 只，上涨 {up} 只，命中率 {winrate}%，平均涨幅 {avg}%。'
+        summary = (f'盘后总结（核对 {pred_date} 的明日预测 / 目标交易日 {actual_day}）：'
+                   f'入选 {total} 只，上涨 {up} 只，命中率 {winrate}%，平均涨幅 {avg}%。'
                    + (f'高分股(≥6分)命中率 {hi_wr}%' if hi_wr is not None else '')
                    + (f'，低分股(<6分) {lo_wr}%' if lo_wr is not None else '')
                    + ('。高分显著优于低分，信号有效。' if (hi_wr is not None and lo_wr is not None and hi_wr - lo_wr >= 10) else ''))
-        
+
         result = {'items': reviewed, 'winrate': winrate, 'avg_return': avg,
                   'up_count': up, 'total': total, 'hi_winrate': hi_wr, 'lo_winrate': lo_wr,
+                  'pred_date': pred_date, 'actual_day': actual_day,
                   'summary': summary, 'created': now_cst().isoformat()}
-        forecast_save(today, 'evening', result)
-        print(f"[EVENING] {today} 盘后总结: 命中率{winrate}% 平均{avg}%")
+        # 存档按「被核对的交易日」归日，而不是运行日 —— 补跑/跨日运行时口径才一致
+        forecast_save(actual_day, 'evening', result)
+        print(f"[EVENING] {actual_day} 盘后总结（核对 {pred_date}）: 命中率{winrate}% 平均{avg}%")
     except Exception as e:
         print(f"[EVENING ERROR] {e}")
 
