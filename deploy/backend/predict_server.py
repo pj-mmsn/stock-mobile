@@ -3951,10 +3951,21 @@ def _resolve_batch(event, cmd):
     if _min >= 40 or _min <= 5: return 1
     return None
 
-def _merge_morning_items(date_str, batch, new_items):
-    """断点增量合并：已有 morning 存档 items 与本批结果按 code 合并（本批覆盖旧值）；
-    created 保留首条（19:30批），保证 _valid_morning 的时段校验不被批1的存档时间破坏"""
-    prev, _ = forecast_load(date_str, 'morning')
+def _merge_morning_items(date_str, batch, new_items, mode=None):
+    """断点增量合并：已有存档 items 与本批结果按 code 合并（本批覆盖旧值）；
+    created 保留首条（19:30批），保证 _valid_morning 的时段校验不被批1的存档时间破坏
+
+    ★ 2026-10-13 修复（跨模式污染）：原实现固定读 `'morning'` 这一条**共享**记录做并集，
+    而同一个 date 只有一条 → 一天内跑多个模式时，**后跑的模式会把前面模式的结果并进来**。
+    实测：swing/short/long 三档缓存 items 全部变成同一个数（1603），
+    用户切档会看到几乎一样的列表（铁律 6：同一数据不同视图要一致 —— 这里是"不同视图不该相同"）。
+    cron 原来每天只跑一个模式（get_user_mode），所以从未暴露；一旦补刷三档立刻出问题。
+
+    修法：mode 非空时合并进 `morning_{mode}`（各档互不干扰）；
+    mode 为空时仍合并进共享 `'morning'`（保留原并集语义，供盘后验证覆盖全部预测）。
+    """
+    key = ('morning_' + mode) if mode else 'morning'
+    prev, _ = forecast_load(date_str, key)
     created = now_cst().isoformat()
     have = {}
     batches_done = []
@@ -4011,18 +4022,29 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
     _tiers = {'top': _ranked[:20], 'watch': _ranked[:200],
               'top_n': min(20, len(_ranked)), 'watch_n': min(200, len(_ranked)),
               'full_n': len(top)}
-    merged_items, batches_done, created = _merge_morning_items(date_str, batch, top)
+    merged_items, batches_done, created = _merge_morning_items(date_str, batch, top, mode=mode)
+    # ★ 同时并入共享 'morning' 记录（并集语义）：盘后验证读的是这一条，
+    #   保持它能覆盖当天所有模式的预测，不因分模式存档而缩小验证范围。
+    union_items = merged_items
+    try:
+        union_items, _ub, _uc = _merge_morning_items(date_str, batch, top, mode=None)
+    except Exception as _e:
+        print(f'[MORNING] 共享记录合并失败（不影响分模式）: {_e}')
     mode_name = {'short': '超短', 'swing': '波段', 'long': '长线'}.get(mode, mode)
+    # 分模式存档：items = 本模式自己的结果（**不含其他模式**）
     _morning_payload = {'items': merged_items, 'total_scanned': total,
         'created': created, 'mode': mode, 'batch': batch, 'batches_done': batches_done,
         'env': env,
         'summary': f'明日预测 {len(merged_items)} 只（{mode_name}模式 · 满分信号扫描 {total} 只，含当日收盘数据 · 批次{batches_done}）'}
-    forecast_save(date_str, 'morning', _morning_payload)
-    # ★ 2026-10-13：**按模式分别存档**。
-    #   forecast_history 主键是 (date, type)，原来每种 type 每天只存一条 →
-    #   三档预测互相覆盖，导致"分模式评估"根本不可能（实测 /api/paper-trade 三个模式
-    #   返回完全相同的结果，正是读到同一条记录）。
-    #   新增 morning_short / morning_swing / morning_long，原 'morning' 保留不变以兼容旧逻辑。
+    # 共享存档：items = 各模式并集（盘后验证读这条，保证覆盖全天所有预测）
+    _union_payload = {'items': union_items, 'total_scanned': total,
+        'created': created, 'mode': mode, 'batch': batch, 'batches_done': batches_done,
+        'env': env,
+        'summary': f'明日预测（全模式并集）{len(union_items)} 只 · 最近写入模式 {mode_name} · 扫描 {total} 只'}
+    forecast_save(date_str, 'morning', _union_payload)
+    # ★ 2026-10-13：**按模式分别存档**。forecast_history 主键是 (date, type)，
+    #   原来每种 type 每天只存一条 → 三档互相覆盖/污染，分模式评估不可能
+    #   （实测三档缓存 items 完全相同的 1603）。
     try:
         forecast_save(date_str, 'morning_' + mode, _morning_payload)
     except Exception as _e:
