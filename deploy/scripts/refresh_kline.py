@@ -31,7 +31,7 @@ _err_samples = []
 _err_count = 0
 
 # ---- 可调参数 ----
-HOT_PER_MODE = 350        # hot 池每档取前 N 只（3 档去重后约 900；原为全部 1874 只）
+HOT_SLICE = 500           # hot 单轮处理的只数（全池 1874 只 → 约 4 轮覆盖一遍，游标轮转）
 HOT_BUDGET_S = 1200       # hot 单次时间预算 20 分钟，超时优雅退出（让出锁给 all）
 DAILY_WINDOW = ((15, 45), (17, 30))   # 工作日 all 独占窗口，hot 让路
 _CST = timezone(timedelta(hours=8))
@@ -58,7 +58,10 @@ os.environ['PRED_DB'] = '/var/lib/stock-mobile/pred.db'
 sys.path.insert(0, '/opt/stock-mobile/backend')
 
 # ★ L1a：kline_get 必须导入（work() 用它比对末根日期，此前遗漏）
-from predict_server import _kline_incremental, kline_get, DB, cache_get
+# ★ 2026-10-12 二犯：cache_set 也漏了 —— 游标写入抛 NameError 被 `except: pass` 吞掉，
+#   表现是"每轮都从 #0 开始、游标永远不前进"。与 L1a 完全同一类错误。
+#   **凡是本文件用到的 predict_server 符号，必须全部在 import 里列出。**
+from predict_server import _kline_incremental, kline_get, cache_get, cache_set, DB
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sqlite3
 
@@ -95,17 +98,40 @@ except OSError:
 
 c = sqlite3.connect(DB)
 if mode == 'hot':
-    # ★ L1b①：只取预测池头部（原为全部条目，三档去重后 1874 只 → 单次要跑 45 分钟）
+    # ★ L1b①：全池 + 游标轮转。
+    # 原实现取全部预测池（三档去重后 1874 只）→ 单次 45 分钟 > 10 分钟触发间隔 → 永久持锁饿死 all。
+    # 但直接把池子裁小会**降低盘中覆盖**（违反"禁止功能精简"）。故改为：
+    #   · 候选 = 全部预测池（不裁剪，覆盖不缩水）
+    #   · 每轮从 Redis 游标处取 HOT_SLICE 只，跑完把游标前移 → 数轮之内覆盖全池
+    #   · 配合 HOT_BUDGET_S，单次耗时仍有上界，不再长占锁
     secids = set()
     for ck in ('prediction_short', 'prediction_swing', 'prediction_long'):
         try:
-            for it in ((cache_get(ck) or {}).get('items') or [])[:HOT_PER_MODE]:
+            for it in ((cache_get(ck) or {}).get('items') or []):
                 if it.get('secid'):
                     secids.add(it['secid'])
         except Exception:
             pass
-    codes = sorted(secids)
-    print(f'[hot] 预测池头部每档 {HOT_PER_MODE} 只 → 去重后 {len(codes)} 只', flush=True)
+    all_hot = sorted(secids)
+    n_all = len(all_hot)
+    if n_all:
+        cur = 0
+        try:
+            _cv = cache_get('hot_cursor')
+            if isinstance(_cv, dict):
+                cur = int(_cv.get('i', 0)) % n_all
+        except Exception:
+            cur = 0
+        codes = (all_hot + all_hot)[cur:cur + HOT_SLICE]
+        try:
+            cache_set('hot_cursor', {'i': (cur + HOT_SLICE) % n_all})
+        except Exception:
+            pass
+        print(f'[hot] 全池 {n_all} 只，本轮从 #{cur} 起取 {len(codes)} 只'
+              f'（游标轮转，HOT_SLICE={HOT_SLICE}，预算 {HOT_BUDGET_S}s）', flush=True)
+    else:
+        codes = []
+        print('[hot] 预测池为空', flush=True)
 else:
     codes = [r[0] for r in c.execute('SELECT secid FROM klines').fetchall()]
 c.close()
