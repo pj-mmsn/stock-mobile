@@ -4313,7 +4313,17 @@ FUND_FIELDS = 'f2,f3,f6,f8,f9,f10,f12,f13,f14,f20,f23,f24,f37,f62,f109,f114,f115
 
 def refresh_fund():
     """基本面/主力索引 → Redis hash sm:fund（东财 clist 全字段——盘中每 30 分钟 cron）。
-    补 sm:quotes（腾讯）缺的字段：ROE/主力10日/主力20日/阶段涨幅/PE(f114)——列表 join 用"""
+    补 sm:quotes（腾讯）缺的字段：ROE/主力10日/主力20日/阶段涨幅/PE(f114)——列表 join 用
+
+    2026-10-13 修复两处：
+    ① **静默失败**：原实现 fetch 全失败时 mapping 为空 → 既不写也不删、**也不打印任何日志**
+       （实测 `FUND REFRESH ERR` 计数为 0），于是 clist 挂掉后资金流会**无声变陈旧**。
+       现在空结果会明确告警，并改用腾讯兜底。
+    ② **单点依赖**：clist（push2delay）已在所有域名持续 502，原实现无备用源。
+       现在 clist 拿不到时用 `_fetch_tx_qt` 重建（腾讯提供 ROE/PE/PB/换手/量比/市值/成交额），
+       clist 独有的主力资金字段（main_flow*）与阶段涨幅从**已有缓存里保留**，
+       不因换源而丢字段。
+    """
     try:
         mapping = {}
         def fetch_page(p):
@@ -4358,17 +4368,80 @@ def refresh_fund():
                 }
             except Exception:
                 continue
+
+        # ★ 2026-10-13：clist 空 → 明确告警 + 腾讯兜底（保留 clist 独有的主力资金/阶段涨幅）
+        if not mapping:
+            print(f'[FUND] clist 主源不可用（55 页全失败），切换腾讯 qt 兜底', flush=True)
+            old = {}
+            try:
+                if _REDIS is not None:
+                    for k, v in _REDIS.hgetall('sm:fund').items():
+                        try:
+                            old[k.decode() if isinstance(k, bytes) else k] = json.loads(v)
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f'[FUND] 读取旧 sm:fund 失败 {e}')
+            try:
+                for r in _fetch_tx_qt(_load_universe()):
+                    code = r.get('code')
+                    if not code:
+                        continue
+                    o = old.get(code) or {}
+                    mapping[code] = {
+                        'roe': r.get('roe'), 'pe': r.get('pe'), 'pb': r.get('pb'),
+                        # 主力资金与阶段涨幅 clist 独有 → 保留旧值（腾讯源无此字段）
+                        'main_flow': o.get('main_flow'), 'main_flow10': o.get('main_flow10'),
+                        'main_flow20': o.get('main_flow20'),
+                        'chg_5d': o.get('chg_5d'), 'chg_10d': o.get('chg_10d'), 'chg_60d': o.get('chg_60d'),
+                        'amount': r.get('amount'), 'turnover': r.get('turnover'),
+                        'vol_ratio': r.get('vol_ratio'), 'mcap': r.get('mcap'),
+                        '_src': 'tencent',
+                    }
+                print(f'[FUND] 腾讯兜底 → {len(mapping)} 只'
+                      f'（其中保留旧主力资金字段 {sum(1 for v in mapping.values() if v.get("main_flow") is not None)} 只）',
+                      flush=True)
+            except Exception as e:
+                print(f'[FUND] 腾讯兜底也失败：{e}', flush=True)
+
         if _REDIS is not None and mapping:
             _REDIS.delete('sm:fund')
             _REDIS.hset('sm:fund', mapping={k: json.dumps(v, ensure_ascii=False) for k, v in mapping.items()})
+        elif not mapping:
+            print('[FUND] 两个源都拿不到数据 → **保留旧 sm:fund**（资金流可能变陈旧，请查数据源）', flush=True)
         return len(mapping)
     except Exception as e:
         print(f'[FUND REFRESH ERR] {e}')
         return 0
 
+def _latest_session_date():
+    """最近一个「已开盘」的交易日（YYYYMMDD）。
+
+    2026-10-13 修复背景：refresh_ztpool 原先固定用 `now_cst()` 当请求日期与标签，
+    而东财对「未来/今日尚未开盘」的日期请求会**回退返回上一交易日的池子** ——
+    实测 10-13 凌晨 02:00 请求 date=20261013，返回的是 10-12 的 46 只涨停，
+    却被贴上 date=20261013 写入 sm:ztpool 与 zt_history（数据错标，铁律 6）。
+    改为：交易日 09:30 之前一律归到上一个交易日，标签与内容才一致。
+    """
+    d = now_cst()
+    try:
+        # 今天已开盘（交易日且过 09:30）→ 用今天
+        if is_trade_day(d) and (d.hour * 60 + d.minute) >= 9 * 60 + 30:
+            return d.strftime('%Y%m%d')
+        # 否则往前找最近一个交易日
+        cur = d
+        for _ in range(15):
+            cur = cur - timedelta(days=1)
+            if is_trade_day(cur):
+                return cur.strftime('%Y%m%d')
+    except Exception as e:
+        print(f'[ZTPOOL] 交易日推算失败({e})，退回昨天')
+    return (d - timedelta(days=1)).strftime('%Y%m%d')
+
+
 def refresh_ztpool():
     """涨停池/炸板池 → Redis（盘中每 5 分钟 cron；失败保留旧缓存+告警——不静默不空列表）"""
-    today = now_cst().strftime('%Y%m%d')
+    today = _latest_session_date()
     ut = '7eea3edcaed734bea9cbfc24409ed989'
     # 涨停池（东财 push2ex——字段与前端 _fetchZTPool 完全一致）
     try:
@@ -4402,21 +4475,90 @@ def refresh_ztpool():
         print(f'[ZBPOOL ERR] {e}')
     return 0
 
-def refresh_lhb():
-    """龙虎榜 → sm:lhb（15:10 + 20:30 cron——当天榜单固定；字段与前端 getLHB 一致）"""
+def refresh_lhb(date_str=None):
+    """龙虎榜 → sm:lhb（15:10 + 20:10 cron——当天榜单固定；字段与前端 getLHB 一致）
+
+    2026-10-13 修复（功能静默丢失）：原实现用 `API_BASE`（东财 push2delay /api/qt/clist/get），
+    而该接口已在所有东财域名持续 502 → market_jobs.log 里连续 29 次
+    `[LHB REFRESH ERR] HTTP Error 502`，`sm:lhb` 键**根本不存在** →
+    前端「🐉 龙虎榜」tab 长期空白。
+
+    改用东财 **datacenter-web** 报表接口（独立域名，实测近 5 个交易日均可用）：
+      ① RPT_ORGANIZATION_TRADE_DETAILS  个股龙虎榜买卖额（按 NET_BUY_AMT 降序）
+      ② RPT_BILLBOARD_DAILYDETAILSBUY   营业部明细 → 聚合「机构专用」→ 机构净买入
+    输出字段与旧实现**完全一致**（code/name/price/change_pct/secid/netBuy/buyAmt/sellAmt/jgBuy），
+    不删字段、不改前端。
+
+    去重口径：同一只股票可能因不同"上榜原因"出现多行（各行的买入/卖出额是不同席位组合，
+    且部分原因会完全重复）→ 直接求和会重复计算。故按 SECURITY_CODE 去重、
+    保留净买额绝对值最大的一条（接口已按 NET_BUY_AMT 降序，"每股一行"与旧实现语义一致）。
+    """
+    base = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
     try:
-        url = f'{API_BASE}?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f184&fs={FS}&fields=f2,f3,f12,f13,f14,f184,f66,f69,f72'
-        d = fetch(url)
-        rows = ((d or {}).get('data') or {}).get('diff') or []
-        items = [{
-            'code': r.get('f12'), 'name': r.get('f14'), 'price': r.get('f2'),
-            'change_pct': r.get('f3'), 'secid': f"{r.get('f13')}.{r.get('f12')}",
-            'netBuy': r.get('f184'), 'buyAmt': r.get('f66') or 0, 'sellAmt': r.get('f69') or 0,
-            'jgBuy': r.get('f72') or 0,
-        } for r in rows if r.get('f184') is not None and r.get('f184') != 0]
-        if items:
+        if not date_str:
+            # 与 refresh_ztpool 同理：凌晨/盘中早段「今天」还没有龙虎榜，
+            # 必须归到最近一个已开盘的交易日，否则会写入空数据/错标日期。
+            _d = _latest_session_date()                      # YYYYMMDD
+            date_str = f'{_d[:4]}-{_d[4:6]}-{_d[6:8]}'
+
+        # ---- ① 个股榜 ----
+        u1 = (f'{base}?reportName=RPT_ORGANIZATION_TRADE_DETAILS&columns=ALL'
+              f'&filter=(TRADE_DATE%3D%27{date_str}%27)&pageNumber=1&pageSize=1000'
+              f'&sortColumns=NET_BUY_AMT&sortTypes=-1&source=WEB&client=WEB')
+        d1 = fetch(u1, retries=3, timeout=25)
+        rows = ((d1 or {}).get('result') or {}).get('data') or []
+
+        # ---- ② 机构专用净买入（按股票聚合）----
+        jg = {}
+        try:
+            u2 = (f'{base}?reportName=RPT_BILLBOARD_DAILYDETAILSBUY&columns=ALL'
+                  f'&filter=(TRADE_DATE%3D%27{date_str}%27)&pageNumber=1&pageSize=2000'
+                  f'&source=WEB&client=WEB')
+            d2 = fetch(u2, retries=2, timeout=25)
+            for r in (((d2 or {}).get('result') or {}).get('data') or []):
+                if '机构专用' in str(r.get('OPERATEDEPT_NAME') or ''):
+                    c = str(r.get('SECURITY_CODE') or '')
+                    if c:
+                        jg[c] = jg.get(c, 0.0) + (r.get('NET') or 0)
+        except Exception as e:
+            print(f'[LHB] 机构席位聚合失败（jgBuy 置 0，不影响榜单）: {e}')
+
+        # ---- ③ 按股票去重（保留净额最大的一条）----
+        seen = set()
+        items = []
+        for r in rows:
+            code = str(r.get('SECURITY_CODE') or '')
+            if not code or code in seen:
+                continue
+            net = r.get('NET_BUY_AMT')
+            if net is None:
+                continue
+            seen.add(code)
+            secucode = str(r.get('SECUCODE') or '')          # 601595.SH
+            prefix = '1' if secucode.upper().endswith('.SH') else '0'
+            items.append({
+                'code': code,
+                'name': r.get('SECURITY_NAME_ABBR'),
+                'price': r.get('CLOSE_PRICE'),
+                'change_pct': r.get('CHANGE_RATE'),
+                'secid': f'{prefix}.{code}',
+                'netBuy': net,
+                'buyAmt': r.get('BUY_AMT') or 0,
+                'sellAmt': r.get('SELL_AMT') or 0,
+                'jgBuy': round(jg.get(code, 0.0), 2),
+                'reason': (r.get('EXPLANATION') or '')[:60],
+                'date': date_str,
+            })
+        items.sort(key=lambda x: x['netBuy'] or 0, reverse=True)
+
+        if items and _REDIS is not None:
             _REDIS.set('sm:lhb', json.dumps({'items': items, 'total': len(items),
+                                             'date': date_str,
                                              'updated': now_cst().isoformat()}, ensure_ascii=False), ex=86400)
+        if not items:
+            print(f'[LHB] {date_str} 无数据（非交易日或接口变更）——保留旧缓存')
+        else:
+            print(f'[LHB] {date_str} 刷新 {len(items)} 只（含机构席位 {sum(1 for i in items if i["jgBuy"])} 只）')
         return len(items)
     except Exception as e:
         print(f'[LHB REFRESH ERR] {e}')
