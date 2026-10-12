@@ -507,6 +507,7 @@ def signal_backtest(days=30, min_n=60):
     """
     idx = _forward_returns(days_back=max(15, days + 10))
     stats = {k: {'on_n': 0, 'on_sum': 0.0, 'off_n': 0, 'off_sum': 0.0} for k in _SIG_RANK_KEYS}
+    qvals = {'rsi6': [], 'rsi14': []}
     used_days, skipped = [], 0
     try:
         c = sqlite3.connect(DB)
@@ -542,6 +543,10 @@ def signal_backtest(days=30, min_n=60):
                 continue
             r = (cc / pc - 1) * 100
             got += 1
+            for _f in ('rsi6', 'rsi14'):
+                _v = it.get(_f)
+                if isinstance(_v, (int, float)):
+                    qvals[_f].append((float(_v), r))
             on = set(it.get('sigs') or [])
             for k in _SIG_RANK_KEYS:
                 if it.get(k) or (k in on):
@@ -568,8 +573,36 @@ def signal_backtest(days=30, min_n=60):
         out[k] = {'on_n': s['on_n'], 'off_n': s['off_n'],
                   'on_avg': round(aon, 3), 'off_avg': round(aoff, 3),
                   'effect': round(aon - aoff, 3)}
+    # ★ 2026-10-13：RSI 分层有效性。
+    #   动机：单日样本里 rsi6 最高档 +0.93% vs 最低档 −1.08%（差 2pt），但单日不足以确认。
+    #   这里在**同一个无偏回测**里按 rsi6/rsi14 分五档统计，样本足够才可作为筛选依据。
+    quant = {}
+    try:
+        for fld in ('rsi6', 'rsi14'):
+            vals = qvals.get(fld) or []
+            if len(vals) < 500:
+                continue
+            vals.sort(key=lambda x: x[0])
+            n = len(vals)
+            qs = []
+            for q in range(5):
+                seg = vals[q * n // 5:(q + 1) * n // 5]
+                if not seg:
+                    continue
+                qs.append({'q': q + 1, 'n': len(seg),
+                           'lo': round(seg[0][0], 1), 'hi': round(seg[-1][0], 1),
+                           'avg': round(sum(x[1] for x in seg) / len(seg), 3),
+                           'up_rate': round(sum(1 for x in seg if x[1] > 0) * 100.0 / len(seg), 1)})
+            mono_up = all(qs[i]['avg'] <= qs[i + 1]['avg'] for i in range(len(qs) - 1))
+            mono_dn = all(qs[i]['avg'] >= qs[i + 1]['avg'] for i in range(len(qs) - 1))
+            quant[fld] = {'quantiles': qs, 'n': n,
+                          'spread': round(qs[-1]['avg'] - qs[0]['avg'], 3) if len(qs) == 5 else None,
+                          'monotonic': ('递增' if mono_up else ('递减' if mono_dn else '不单调'))}
+    except Exception as e:
+        print(f'[SIGBT] RSI 分层失败 {e}')
     print(f'[SIGBT] 回测 {len(used_days)} 天（跳过 {skipped} 天样本不足），信号 {len(out)} 个', flush=True)
-    return {'sigs': out, 'days': used_days, 'n_total': len(used_days), 'src': 'morning+kline'}
+    return {'sigs': out, 'days': used_days, 'n_total': len(used_days), 'src': 'morning+kline',
+            'quantiles': quant}
 
 
 def signal_effect_stats(min_n=60, max_days=60):
@@ -679,6 +712,7 @@ def signal_weights(refit=False, cache_s=3600, prefer_backtest=True):
         out = {
             'w': w, 'fit_ts': time.time(), 'days': st.get('n_total'),
             'days_list': (st.get('days') or [])[:10], 'sigs': st['sigs'],
+            'quantiles': st.get('quantiles') or {},
             'src': st.get('src'),
             'note': 'w=clamp(1+effect*n/(n+300),0.1,3.0)；effect=触发组均涨-未触发组均涨；'
                     '来源优先无偏回测(morning完整名单+K线)，避免旧evening的涨幅榜选择偏差',
@@ -1213,13 +1247,24 @@ J('/api/alpha-curve').then(d=>{
 
 // 三、信号有效性
 J('/api/signal-stats').then(d=>{
-  const eff=d.effects||{},w=d.weights||{};
+  const eff=d.effects||{},w=d.weights||{},qt=d.quantiles||{};
   const ks=Object.keys(w).sort((a,b)=>(w[b]||0)-(w[a]||0));
   const mx=Math.max(0.1,...ks.map(k=>Math.abs((eff[k]||{}).effect||0)));
   let h='<table><tr><th>信号</th><th>有效性</th><th>触发组</th><th>未触发组</th><th>样本</th><th>权重</th><th>强度</th></tr>';
   ks.forEach(k=>{const e=eff[k]||{};h+='<tr><td>'+k.replace('sig_','')+'</td><td class="'+sg(e.effect)+'"><b>'+(e.effect>0?'+':'')+f(e.effect)+'%</b></td><td class="dim">'+pct(e.on_avg)+'</td><td class="dim">'+pct(e.off_avg)+'</td><td class="dim">'+(e.on_n||0)+'</td><td>'+f(w[k],3)+'</td><td>'+bar(e.effect||0,mx)+'</td></tr>';});
   h+='</table>';
-  $('sig').innerHTML='<div class="dim" style="margin-bottom:8px">回测来源：'+(d.w_src||'-')+' · '+(d.fit_days||0)+' 天</div>'+h;
+  let qh='';
+  const qk=Object.keys(qt);
+  if(qk.length){
+    qh='<div style="margin-top:16px"><b>连续指标分层（同一无偏回测，样本更足）</b>';
+    qk.forEach(f2=>{const v=qt[f2];const qs=v.quantiles||[];
+      qh+='<div class="dim" style="margin:8px 0 4px">'+f2+' · 样本 '+v.n+' · 单调性 <b class="'+(v.monotonic==='不单调'?'warn':'')+'">'+v.monotonic+'</b> · 最高档−最低档 '+pct(v.spread)+'</div>';
+      qh+='<table><tr><th>分位</th><th>区间</th><th>样本</th><th>平均收益</th><th>上涨占比</th></tr>';
+      qs.forEach(x=>{qh+='<tr><td>Q'+x.q+'</td><td class="dim">'+x.lo+' ~ '+x.hi+'</td><td class="dim">'+x.n+'</td><td class="'+sg(x.avg)+'">'+pct(x.avg)+'</td><td class="dim">'+f(x.up_rate,1)+'%</td></tr>';});
+      qh+='</table>';});
+    qh+='<div class="note">若"单调性=不单调"且价差接近 0，说明该指标在当前样本下<b>没有区分能力</b>，不应作为筛选依据。</div></div>';
+  }
+  $('sig').innerHTML='<div class="dim" style="margin-bottom:8px">回测来源：'+(d.w_src||'-')+' · '+(d.fit_days||0)+' 天</div>'+h+qh;
 }).catch(e=>$('sig').innerHTML='<div class="err">'+e.message+'</div>');
 
 // 四、模拟账户
@@ -1272,6 +1317,7 @@ def api_signal_stats():
     return jsonify({
         'weights': W.get('w') or {},
         'effects': W.get('sigs') or {},
+        'quantiles': W.get('quantiles') or {},
         'w_src': W.get('src'),
         'fit_days': W.get('days'),
         'fit_days_list': W.get('days_list'),
