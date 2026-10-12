@@ -1991,9 +1991,13 @@ def quick_scan(pages=55, mode=DEFAULT_MODE):
         sig_wyckoff = -30 < chg60 < 0 and chg_today > -2
         sig_leader = code in leader_codes
         # 【D4】题材层：属于今日主线行业（涨停池≥3家聚合）→ 初筛加分，保证主线票进深扫
-        # f100=行业板块名（push2delay clist 唯一有效行业字段；f127 在延迟接口是垃圾值）
+        # ★ 2026-10-13：行业来源改为 sm:industry。
+        #   原实现只看 `s.get('f100')`（东财 clist 独有的行业字段），而 clist 已全线 502、
+        #   走腾讯兜底时 f100 恒为空 → **sig_theme 永远 False，题材加分从未生效过**。
+        #   现在与 deep_analyze 用同一张表（sm:industry，与涨停池 hybk 同口径）。
+        _ind_pre = ((s.get('f100') or '') or _IMAP.get(code, ''))
         _ml, _ = _theme_mainline()
-        sig_theme = bool(s.get('f100') and s.get('f100') in _ml)
+        sig_theme = bool(_ind_pre and _ind_pre in _ml)
         qs = sum(1 for x in [sig_trend, sig_breakH, sig_value, sig_maBull, sig_wyckoff] if x)
         if sig_leader: qs += 2
         if sig_theme: qs += 2
@@ -2012,12 +2016,8 @@ def quick_scan(pages=55, mode=DEFAULT_MODE):
         except: pass
 
         if qs > 0:
-            # ★ 2026-10-13：行业改为从 sm:industry 取。
-            #   原实现 `'' if _src_tx else s.get('f100')` —— 走腾讯兜底时恒为空，
-            #   而 clist（唯一提供 f100 的源）已 502 → **行业永远为空** →
-            #   L1517 的 `sig_theme = industry in 主线` 恒为 False，题材信号一直是死的。
-            #   sm:industry 由 refresh_industry() 每日 08:05 cron 维护，与涨停池同口径。
-            _ind = (s.get('f100', '') or '') or _IMAP.get(code, '')
+            # ★ 2026-10-13：行业从 sm:industry 取（与 sig_theme 同源，保持一致）
+            _ind = _ind_pre
             items.append({
                 'code': code, 'name': name,
                 'price': (s.get('price') if _src_tx else s.get('f2')),
@@ -3983,6 +3983,11 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
     for i in deep:
         top.append({
             'code': i.get('code'), 'name': i.get('name'), 'score': i.get('score',0),
+            # ★ 2026-10-13：rank_score 必须显式加入白名单，否则会被丢弃
+            #   （本函数用显式字段列表构造存档条目；实测漏掉后缓存里 rank_score=None，
+            #    排序退化成旧 score，"按有效性加权排序"等于没生效）
+            'rank_score': i.get('rank_score'),
+            'rank_model': i.get('rank_model'),
             'price': i.get('price'), 'change_pct': i.get('change_pct'),
             'secid': i.get('secid'), 'board': (i.get('board') or {}).get('board'),
             'sigs': [k for k in ['sig_trend','sig_breakH','sig_vcp','sig_maBull','sig_wyckoff',
@@ -4000,6 +4005,12 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
             'rsi6': (i.get('levels') or {}).get('rsi6'),
             'rsi14': (i.get('levels') or {}).get('rsi'),
         })
+    # ★ 分档输出：全量上千只没有操作价值。按 rank_score（有效性加权）取前排。
+    _ranked = sorted(top, key=lambda x: (x.get('rank_score') if x.get('rank_score') is not None
+                                         else x.get('score', 0)), reverse=True)
+    _tiers = {'top': _ranked[:20], 'watch': _ranked[:200],
+              'top_n': min(20, len(_ranked)), 'watch_n': min(200, len(_ranked)),
+              'full_n': len(top)}
     merged_items, batches_done, created = _merge_morning_items(date_str, batch, top)
     mode_name = {'short': '超短', 'swing': '波段', 'long': '长线'}.get(mode, mode)
     _morning_payload = {'items': merged_items, 'total_scanned': total,
@@ -4024,6 +4035,7 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
                                      'stage': 'deep' if batch == 1 else 'batch0',
                                      'maxScore': 6 + cfg['w_value'] + cfg['w_leader'] + cfg['w_theme'],
                                      'themes': _theme_detail,
+                                     'tiers': _tiers,
                                      'updated': now_cst().isoformat(), 'mode': mode, '_ts': time.time(),
                                      'env': env})
     _scan_batch_set(date_str, mode, batch, 'done')
