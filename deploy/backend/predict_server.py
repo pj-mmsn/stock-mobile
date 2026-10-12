@@ -256,9 +256,880 @@ def _zt_pool_em(date_str):
 _theme_cache = {'ts': 0, 'industries': set(), 'detail': []}
 _theme_lock = threading.Lock()
 
+# ========== 行业映射（东财 datacenter，与涨停池 hybk 同源）==========
+# 2026-10-13 新增背景：全市场 industry 字段长期为空（clist 的 f100 随 clist 一起 502），
+# 后果有两个：①前端所有股票的行业都显示"其他"，行业分析失效；
+#            ②L1517 的 sig_theme 判断 `industry in 主线` 恒为 False → **题材信号一直是死的**。
+# 数据源选型实测：
+#   · 新浪 newSinaHy 49 个行业：全市场只覆盖 50%、涨停池只 46%，且分类比东财粗一档（"传媒娱乐" vs 东财"出版"/"影视院线"）→ 弃用
+#   · 东财 datacenter RPT_F10_CORETHEME_BOARDTYPE：BOARD_TYPE=='行业' 精确命中，
+#     单只 ~0.08s（8 并发），全市场约 7 分钟，**与涨停池 hybk 同一套东财命名** → 采用
+_IND_UA = {'UA': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
+
+
+def _norm_industry(s):
+    """行业名归一：去掉申万层级后缀（Ⅱ/Ⅲ）与空白，便于跨来源比较"""
+    return (s or '').replace('Ⅱ', '').replace('Ⅲ', '').replace('II', '').strip()
+
+
+def _em_industry_of(code):
+    """单只股票的东财行业（BOARD_TYPE == '行业'）
+
+    注：`fetch()` 的默认 Referer 是 quote.eastmoney.com，实测访问 datacenter-web 可用，
+    故不传 headers（fetch 也没有 headers 参数——曾误传导致异常被吞、行业静默全空）。
+    """
+    try:
+        secu = code + ('.SH' if code.startswith(('6', '9')) else '.SZ')
+        u = ('https://datacenter-web.eastmoney.com/api/data/v1/get'
+             '?reportName=RPT_F10_CORETHEME_BOARDTYPE&columns=ALL'
+             f'&filter=(SECUCODE%3D%22{secu}%22)&pageNumber=1&pageSize=40&source=WEB&client=WEB')
+        d = fetch(u, retries=2, timeout=15)
+        for r in (((d or {}).get('result') or {}).get('data') or []):
+            if (r.get('BOARD_TYPE') or '') == '行业' and r.get('BOARD_NAME'):
+                return _norm_industry(r['BOARD_NAME'])
+        return None
+    except Exception:
+        return '__ERR__'
+
+
+def refresh_industry(codes=None, workers=8):
+    """全市场行业映射 → Redis hash sm:industry
+
+    ★ 实现方式（2026-10-13 三次迭代后的最终解）：
+      东财 datacenter `RPT_F10_CORETHEME_BOARDTYPE` + `filter=(BOARD_TYPE="行业")`
+      **全量分页拉取**（实测 4 页 / 16977 行 / 数秒），取 `BOARD_LEVEL == '2'`
+      （东财二级行业）—— 实测与涨停池 `hybk` 覆盖 46/46、**同名 40/46**，同一套口径。
+
+    ⚠️ 两次失败的教训（都属"静默失败"）：
+      ①最初按单只股票查（5508 次请求）→ 东财限流，间歇返回 `success=false / "返回数据为空"`，
+        而**该情况不抛异常** → 命中 0 只且"异常 0 只"，看起来像"这些股票都没有行业"。
+      ②反向按板块 BOARD_CODE 查成分 → 该报表不支持，恒返回 0 行。
+    批量拉取把请求数从 5508 降到 4，且不再触发限流。
+    """
+    LEVEL = '2'
+    try:
+        base = ('https://datacenter-web.eastmoney.com/api/data/v1/get'
+                '?reportName=RPT_F10_CORETHEME_BOARDTYPE&columns=ALL'
+                '&filter=(BOARD_TYPE%3D%22%E8%A1%8C%E4%B8%9A%22)'
+                '&pageNumber={}&pageSize=5000&source=WEB&client=WEB')
+        mapping = {}
+        rows_total = 0
+        for page in range(1, 8):
+            d = fetch(base.format(page), retries=3, timeout=30)
+            res = (d or {}).get('result') or {}
+            rows = res.get('data') or []
+            if not rows:
+                if page == 1:
+                    print('[IND] ⚠️ 第 1 页即空（接口限流或报表变更）', flush=True)
+                break
+            rows_total += len(rows)
+            for r in rows:
+                if str(r.get('BOARD_LEVEL')) != LEVEL:
+                    continue
+                code = str(r.get('SECURITY_CODE') or '')
+                nm = _norm_industry(r.get('BOARD_NAME'))
+                if code and nm:
+                    mapping.setdefault(code, nm)
+            pages = res.get('pages')
+            if pages and page >= int(pages):
+                break
+            time.sleep(0.6)
+
+        if codes is not None:
+            keep = set(codes)
+            mapping = {k: v for k, v in mapping.items() if k in keep}
+
+        old_n = 0
+        if _REDIS is not None:
+            try:
+                old_n = _REDIS.hlen('sm:industry')
+            except Exception:
+                pass
+            if mapping:
+                _REDIS.delete('sm:industry')
+                _REDIS.hset('sm:industry', mapping=mapping)
+        print(f'[IND] 拉取 {rows_total} 行 → 行业映射 {len(mapping)} 只（原 {old_n} 只）', flush=True)
+        if len(mapping) < 1000:
+            print('[IND] ⚠️ 覆盖过低（<1000），行业数据不可用 → sig_theme 会失效', flush=True)
+        return len(mapping)
+    except Exception as e:
+        print(f'[IND ERR] {e}')
+        return 0
+    except Exception as e:
+        print(f'[IND ERR] {e}')
+        return 0
+
+
+_ind_mem = {'ts': 0, 'm': {}}
+
+
+def industry_map():
+    """code → 行业（进程内缓存 10 分钟；Redis hash sm:industry 为源）"""
+    now = time.time()
+    if now - _ind_mem['ts'] < 600 and _ind_mem['m']:
+        return _ind_mem['m']
+    m = {}
+    if _REDIS is not None:
+        try:
+            for k, v in _REDIS.hgetall('sm:industry').items():
+                kk = k.decode() if isinstance(k, bytes) else k
+                vv = v.decode() if isinstance(v, bytes) else v
+                if vv:
+                    m[kk] = vv
+        except Exception:
+            pass
+    _ind_mem['ts'] = now
+    _ind_mem['m'] = m
+    return m
+
+
+# ========== 有效性度量：全市场宽度 / 超额收益 / 信号权重 ==========
+# 2026-10-13 新增。动机：盘后验证此前只记绝对涨跌，**没有基准** ——
+# 31.9% 的命中率若与当日市场宽度相同就是零优势，若无基准则完全无法判断。
+# 且评分用"数信号个数"，而实测多个信号是**负向**的（wyckoff -1.41%、vcp -0.47%、
+# maBull -0.40%），信号越多反而越差 —— 这正是评分 Q1~Q5 不单调的原因。
+
+def market_breadth(day, use_cache=True, ttl=86400 * 60, basis='cc', compute=True):
+    """给定交易日的**全市场宽度**（从 Redis K 线计算，与预测同源，非近似）。
+
+    basis: 'cc' = 收盘/昨收（close-to-close，主预测用）
+           'oc' = 收盘/今开（open-to-close，与麦唛"开盘买入"口径对齐）
+    compute=False 时**只读缓存**，未命中返回 None —— 供 API 路径使用，
+           避免在请求里跑 36 秒的全市场扫描（会超时）。
+    返回 {'date','basis','n','up','up_rate','avg','median','p20','p80','src'}
+    做基准用：策略的命中率/平均收益必须减去它，剩下的才是真实的 α。
+    """
+    ck = f'sm:breadth:{basis}:{day}'
+    if use_cache and _REDIS is not None:
+        try:
+            raw = _REDIS.get(ck)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    if not compute:
+        return None
+    chgs = []
+    try:
+        if _REDIS is None:
+            return None
+        for k in _REDIS.scan_iter('sm:kline:*', count=1000):
+            ks = k.decode() if isinstance(k, bytes) else k
+            sid = ks.split('sm:kline:', 1)[-1]
+            kl = kline_get(sid)
+            if not kl:
+                continue
+            # 定位该交易日的 bar
+            idx = None
+            for i in range(len(kl) - 1, max(-1, len(kl) - 12), -1):
+                if str(kl[i].get('t'))[:10] <= day:
+                    idx = i
+                    break
+            if idx is None or idx < 1:
+                continue
+            if str(kl[idx].get('t'))[:10] != day:
+                continue           # 该股当日无成交（停牌）
+            bar = kl[idx]
+            if basis == 'oc':
+                base, cur = bar.get('o'), bar.get('c')
+            else:
+                base, cur = kl[idx - 1].get('c'), bar.get('c')
+            if base and cur:
+                chgs.append((cur / base - 1) * 100)
+    except Exception as e:
+        print(f'[BREADTH] 计算失败 {e}')
+        return None
+    if not chgs:
+        return None
+    chgs.sort()
+    n = len(chgs)
+    out = {
+        'date': day, 'basis': basis, 'n': n,
+        'up': sum(1 for x in chgs if x > 0),
+        'up_rate': round(sum(1 for x in chgs if x > 0) * 100.0 / n, 1),
+        'avg': round(sum(chgs) / n, 2),
+        'median': round(chgs[n // 2], 2),
+        'p20': round(chgs[int(n * 0.2)], 2),
+        'p80': round(chgs[int(n * 0.8)], 2),
+        'src': 'kline',
+    }
+    if _REDIS is not None:
+        try:
+            _REDIS.set(ck, json.dumps(out, ensure_ascii=False), ex=ttl)
+        except Exception:
+            pass
+    print(f"[BREADTH] {day}({basis}): {n} 只, 上涨 {out['up_rate']}%, 均值 {out['avg']}%", flush=True)
+    return out
+
+
+_SIG_RANK_KEYS = ['sig_trend', 'sig_vcp', 'sig_maBull', 'sig_lowBuy', 'sig_kdj', 'sig_breakH',
+                  'sig_maTight', 'sig_volDry', 'sig_fib', 'sig_bollSq', 'sig_wyckoff',
+                  'sig_leader', 'sig_value', 'sig_theme']
+
+
+def _forward_returns(days_back=45):
+    """一次性构建 {code: {date: (prev_close, close)}}，供信号回测用。
+
+    只保留最近 days_back 个自然日区间内的 bar（内存友好：约 5500×30 项）。
+    """
+    out = {}
+    try:
+        if _REDIS is None:
+            return out
+        for k in _REDIS.scan_iter('sm:kline:*', count=1000):
+            ks = k.decode() if isinstance(k, bytes) else k
+            code = ks.split('sm:kline:', 1)[-1].split('.', 1)[-1]
+            kl = kline_get(ks.split('sm:kline:', 1)[-1])
+            if not kl or len(kl) < 3:
+                continue
+            m = {}
+            for i in range(max(1, len(kl) - days_back), len(kl)):
+                d = str(kl[i].get('t'))[:10]
+                pc, c = kl[i - 1].get('c'), kl[i].get('c')
+                if pc and c:
+                    m[d] = (pc, c)
+            if m:
+                out[code] = m
+    except Exception as e:
+        print(f'[SIGBT] 构建收益索引失败 {e}')
+    return out
+
+
+def signal_backtest(days=30, min_n=60):
+    """信号**无偏回测**：用 morning 存档（完整候选池，无选择偏差）+ 后续真实收益，
+    统计每个信号的多日有效性。
+
+    为什么要单独做这个函数（而不是直接用 evening 记录）：
+      旧版盘后验证只从「涨幅榜前 500 只」取实际涨跌 → 榜单外的候选查不到、被丢弃
+      → 留下的全是上涨股 → 旧 evening 记录的 winrate 恒为 100%，**存在严重选择偏差**。
+      直接拿它拟合权重会把"只涨的样本"当成普遍规律。本函数从 morning 存档取**完整名单**，
+      收益一律从 K 线取，口径干净。
+    """
+    idx = _forward_returns(days_back=max(15, days + 10))
+    stats = {k: {'on_n': 0, 'on_sum': 0.0, 'off_n': 0, 'off_sum': 0.0} for k in _SIG_RANK_KEYS}
+    used_days, skipped = [], 0
+    try:
+        c = sqlite3.connect(DB)
+        recs = c.execute("SELECT date, data FROM forecast_history WHERE type='morning' "
+                         "ORDER BY date DESC LIMIT ?", (max(1, days),)).fetchall()
+        c.close()
+    except Exception as e:
+        print(f'[SIGBT] 读库失败 {e}')
+        return {'sigs': {}, 'days': [], 'n_total': 0}
+    for pdate, ds in recs:
+        try:
+            j = json.loads(ds)
+        except Exception:
+            continue
+        items = j.get('items') or []
+        if len(items) < 100:
+            skipped += 1
+            continue
+        # 目标交易日 = 该股 K 线里第一个 > pdate 的日期；用众数作为当日
+        got = 0
+        per_sig = {k: {'on': [], 'off': []} for k in _SIG_RANK_KEYS}
+        for it in items:
+            code = it.get('code')
+            m = idx.get(code)
+            if not m:
+                continue
+            later = [d for d in m if d > pdate]
+            if not later:
+                continue
+            day = min(later)
+            pc, cc = m[day]
+            if not pc:
+                continue
+            r = (cc / pc - 1) * 100
+            got += 1
+            on = set(it.get('sigs') or [])
+            for k in _SIG_RANK_KEYS:
+                if it.get(k) or (k in on):
+                    per_sig[k]['on'].append(r)
+                else:
+                    per_sig[k]['off'].append(r)
+        if got < 100:
+            skipped += 1
+            continue
+        used_days.append(pdate)
+        for k in _SIG_RANK_KEYS:
+            a, b = per_sig[k]['on'], per_sig[k]['off']
+            s = stats[k]
+            s['on_n'] += len(a)
+            s['on_sum'] += sum(a)
+            s['off_n'] += len(b)
+            s['off_sum'] += sum(b)
+    out = {}
+    for k, s in stats.items():
+        if s['on_n'] < min_n or s['off_n'] < min_n:
+            continue
+        aon = s['on_sum'] / s['on_n']
+        aoff = s['off_sum'] / s['off_n']
+        out[k] = {'on_n': s['on_n'], 'off_n': s['off_n'],
+                  'on_avg': round(aon, 3), 'off_avg': round(aoff, 3),
+                  'effect': round(aon - aoff, 3)}
+    print(f'[SIGBT] 回测 {len(used_days)} 天（跳过 {skipped} 天样本不足），信号 {len(out)} 个', flush=True)
+    return {'sigs': out, 'days': used_days, 'n_total': len(used_days), 'src': 'morning+kline'}
+
+
+def signal_effect_stats(min_n=60, max_days=60):
+    """（旧）从 evening 记录统计信号有效性。**只应使用新口径记录** ——
+    2026-10-12 之前的记录存在"只取涨幅榜前 500"的选择偏差，故此处按 pred_date 字段
+    是否存在来识别新口径；权重拟合请优先用 signal_backtest()。"""
+    rows_days = []
+    stats = {k: {'on_n': 0, 'on_sum': 0.0, 'off_n': 0, 'off_sum': 0.0} for k in _SIG_RANK_KEYS}
+    try:
+        c = sqlite3.connect(DB)
+        recs = c.execute("SELECT date, data FROM forecast_history WHERE type='evening' "
+                         "ORDER BY date DESC LIMIT 400").fetchall()
+        c.close()
+    except Exception as e:
+        print(f'[SIGSTAT] 读库失败 {e}')
+        return {'sigs': {}, 'days': [], 'n_total': 0}
+    for day, ds in recs:
+        try:
+            j = json.loads(ds)
+        except Exception:
+            continue
+        if not j.get('pred_date'):
+            continue        # 旧口径：有选择偏差，排除
+        items = j.get('items') or []
+        usable = [i for i in items if i.get('actual_chg') is not None and i.get('sigs') is not None]
+        if len(usable) < 50:
+            continue
+        if len(rows_days) >= max_days:
+            break
+        rows_days.append(day)
+        for i in usable:
+            on = set(i.get('sigs') or [])
+            chg = i['actual_chg']
+            for k in _SIG_RANK_KEYS:
+                s = stats[k]
+                if k in on or i.get(k):
+                    s['on_n'] += 1
+                    s['on_sum'] += chg
+                else:
+                    s['off_n'] += 1
+                    s['off_sum'] += chg
+    out = {}
+    for k, s in stats.items():
+        if s['on_n'] < min_n or s['off_n'] < min_n:
+            continue
+        aon = s['on_sum'] / s['on_n']
+        aoff = s['off_sum'] / s['off_n']
+        out[k] = {
+            'on_n': s['on_n'], 'off_n': s['off_n'],
+            'on_avg': round(aon, 3), 'off_avg': round(aoff, 3),
+            'effect': round(aon - aoff, 3),
+        }
+    return {'sigs': out, 'days': rows_days, 'n_total': len(rows_days), 'src': 'evening-v2'}
+
+
+_SW_MEM = {'ts': 0, 'd': None}
+_SW_LOCK = threading.Lock()
+
+
+def signal_weights(refit=False, cache_s=3600, prefer_backtest=True):
+    """把信号有效性转成**排序权重**，存 Redis sm:signal_weights。
+
+    权重设计（关键：无数据时退化为原行为，绝不拍脑袋）：
+        w = clamp(1.0 + effect * shrink, 0.1, 3.0)
+        shrink = n / (n + SHRINK_K)
+    含义：effect=0 的信号权重仍是 1.0（与旧"每信号1分"完全一致）；
+          正效应>1分、负效应<1分，且**样本越少收缩越强**（防单日过拟合）。
+
+    数据来源优先 signal_backtest()（无偏）；不足时回退到新口径 evening 统计。
+
+    ⚠️ 性能：本函数在 deep_analyze 里**每只股票都会被调用**（每轮 500 次）。
+    回测本身约 40 秒，若缓存过期会被 4 个并发线程同时触发（4×40s 白烧）。
+    故：①进程内 memo（避免 500 次 Redis 往返）②线程锁（回测只跑一次）。
+    """
+    SHRINK_K = 300.0
+    now = time.time()
+    if not refit and _SW_MEM['d'] is not None and now - _SW_MEM['ts'] < cache_s:
+        return _SW_MEM['d']
+    with _SW_LOCK:
+        # 双检：等锁期间别的线程可能已经算好
+        now = time.time()
+        if not refit and _SW_MEM['d'] is not None and now - _SW_MEM['ts'] < cache_s:
+            return _SW_MEM['d']
+        if not refit and _REDIS is not None:
+            try:
+                raw = _REDIS.get('sm:signal_weights')
+                if raw:
+                    d = json.loads(raw)
+                    if time.time() - (d.get('fit_ts') or 0) < cache_s:
+                        _SW_MEM['d'] = d
+                        _SW_MEM['ts'] = time.time()
+                        return d
+            except Exception:
+                pass
+        st = signal_backtest(days=30, min_n=60) if prefer_backtest else {'sigs': {}, 'n_total': 0, 'days': []}
+        if not st.get('sigs'):
+            st = signal_effect_stats()
+        w = {}
+        for k in _SIG_RANK_KEYS:
+            s = st['sigs'].get(k)
+            if not s:
+                w[k] = 1.0
+                continue
+            n = s['on_n'] + s['off_n']
+            shrink = n / (n + SHRINK_K)
+            w[k] = round(max(0.1, min(3.0, 1.0 + s['effect'] * shrink)), 3)
+        out = {
+            'w': w, 'fit_ts': time.time(), 'days': st.get('n_total'),
+            'days_list': (st.get('days') or [])[:10], 'sigs': st['sigs'],
+            'src': st.get('src'),
+            'note': 'w=clamp(1+effect*n/(n+300),0.1,3.0)；effect=触发组均涨-未触发组均涨；'
+                    '来源优先无偏回测(morning完整名单+K线)，避免旧evening的涨幅榜选择偏差',
+        }
+        _SW_MEM['d'] = out
+        _SW_MEM['ts'] = time.time()
+        if _REDIS is not None:
+            try:
+                _REDIS.set('sm:signal_weights', json.dumps(out, ensure_ascii=False), ex=86400 * 30)
+            except Exception:
+                pass
+        return out
+
+
+def rank_score_of(item, W=None):
+    """信号加权排序分（与旧 score 同量纲：中性信号=1 分）
+
+    旧 score = 数信号个数 → 负向信号也加分（wyckoff/vcp/maBull 实测为负）→ 越数越差。
+    本函数按**实测有效性**加权，数据不足时权重≈1，行为与旧版一致。
+    """
+    if W is None:
+        W = signal_weights()
+    w = W.get('w') or {}
+    tot = 0.0
+    for k in _SIG_RANK_KEYS:
+        if item.get(k) or (k in (item.get('sigs') or [])):
+            tot += w.get(k, 1.0)
+    return round(tot, 3)
+
+
+def _rec_coverage(day, j):
+    """估算一条盘后验证记录的**覆盖率** = 已核对只数 / 当时候选池只数。
+
+    2026-10-13 新增。为什么需要：2026-08-21 ~ 09-18 的 evening 记录是用旧口径生成的
+    （实际涨跌只从「涨幅榜前 500 只」取），榜单外的候选查不到就被丢弃 →
+    留下的全是上涨股 → winrate 恒为 100%、avg 虚高。
+    这类记录若参与累计超额/仓位建议，会得出"策略超额 +121%"这种荒谬结论，
+    并可能**误导加仓**。故必须识别并排除。
+
+    判据：覆盖率 < 50% 即视为有选择偏差。实测旧记录 84/1466≈6%，
+    新记录 1901/2236≈85%，区分度极高。
+    """
+    try:
+        total = j.get('total') or 0
+        if not total:
+            return 0.0
+        pdate = j.get('pred_date')
+        c = sqlite3.connect('file:%s?mode=ro' % DB, uri=True)
+        if pdate:
+            r = c.execute("SELECT data FROM forecast_history WHERE type='morning' AND date=?",
+                          (pdate,)).fetchone()
+        else:
+            r = c.execute("SELECT data FROM forecast_history WHERE type='morning' AND date<=? "
+                          "ORDER BY date DESC LIMIT 1", (day,)).fetchone()
+        c.close()
+        if not r:
+            return 0.0
+        n_morning = len((json.loads(r[0]).get('items') or []))
+        if n_morning <= 0:
+            return 0.0
+        return round(min(1.0, total * 1.0 / n_morning), 3)
+    except Exception:
+        return 0.0
+
+
+def _is_biased_record(day, j):
+    """该验证记录是否因旧口径的选择偏差而不可信"""
+    if j.get('coverage') is not None:
+        return (j['coverage'] or 0) < 0.5
+    return _rec_coverage(day, j) < 0.5
+
+
+def refresh_alpha_history(days=45, max_compute=60):
+    """把历史盘后验证记录补齐基准、覆盖率与超额收益（写回 DB）。
+
+    ⚠️ 架构原因：`market_breadth` 一次要遍历全市场 K 线（约 36 秒，含 gzip 解压）。
+    若在 API 里现场对 20+ 个历史日重算，接口要跑十几分钟 —— **必然超时**。
+    故改为预计算：本函数离线补齐并写回，`/api/alpha-curve` 只做纯 DB 读取。
+    每日 cron 调一次（新交易日只多算 1-2 天，命中缓存后很快）。
+
+    有选择偏差的记录也会被标记（coverage/biased），但**不计入**累计超额。
+    """
+    done, skip, failed, biased = 0, 0, 0, 0
+    try:
+        c = sqlite3.connect(DB)
+        recs = c.execute("SELECT date, type, data FROM forecast_history "
+                         "WHERE type IN ('evening','mbm_review') ORDER BY date DESC LIMIT ?",
+                         (days * 3,)).fetchall()
+        bcache = {}
+        for day, t, ds in recs:
+            try:
+                j = json.loads(ds)
+            except Exception:
+                continue
+            if not (j.get('total') or 0):
+                skip += 1
+                continue
+            if (j.get('winrate') is None) or (j.get('avg_return') is None):
+                skip += 1
+                continue
+            changed = False
+            # 标记覆盖率与偏差（即使已有 alpha 也要补，便于前端区分展示）
+            if j.get('coverage') is None:
+                j['coverage'] = _rec_coverage(day, j)
+                j['biased'] = bool(j['coverage'] < 0.5)
+                changed = True
+                if j['biased']:
+                    biased += 1
+            if j.get('alpha'):
+                if changed:
+                    c.execute('REPLACE INTO forecast_history VALUES (?,?,?,?)',
+                              (day, t, time.time(), json.dumps(j, ensure_ascii=False)))
+                    done += 1
+                else:
+                    skip += 1
+                continue
+            target = j.get('actual_day') or j.get('reviewed') or day
+            basis = 'oc' if t == 'mbm_review' else 'cc'
+            key = (basis, target)
+            if key not in bcache:
+                if len(bcache) >= max_compute:
+                    failed += 1
+                    continue
+                try:
+                    bcache[key] = market_breadth(target, basis=basis)
+                except Exception:
+                    bcache[key] = None
+            b = bcache[key]
+            if not b:
+                failed += 1
+                continue
+            j['bench'] = b
+            j['alpha'] = {'bench_up_rate': b['up_rate'], 'bench_avg': b['avg'],
+                          'bench_median': b['median'], 'bench_n': b['n'], 'basis': basis,
+                          'alpha_up': round((j['winrate'] or 0) - b['up_rate'], 1),
+                          'alpha_avg': round((j['avg_return'] or 0) - b['avg'], 2)}
+            try:
+                c.execute('REPLACE INTO forecast_history VALUES (?,?,?,?)',
+                          (day, t, time.time(), json.dumps(j, ensure_ascii=False)))
+                done += 1
+            except Exception as e:
+                print(f'[ALPHA-BF] 写回失败 {day}/{t}: {e}')
+                failed += 1
+        c.commit()
+        c.close()
+    except Exception as e:
+        print(f'[ALPHA-BF ERR] {e}')
+    print(f'[ALPHA-BF] 补齐 {done} 条，跳过 {skip} 条，失败 {failed} 条，其中标记为有偏 {biased} 条', flush=True)
+    return done
+
+
+@app.route('/api/alpha-curve')
+def api_alpha_curve():
+    """累计超额曲线：把每个交易日的「策略收益 − 全市场基准」累加。
+
+    这是回答"这套系统到底有没有优势"的唯一硬指标。
+    数据来源：DB 里已写好的 bench/alpha（由 refresh_alpha_history() 预计算）。
+    本接口**只读 DB**，不做全市场扫描（否则单次要十几分钟，必然超时）。
+    """
+    out = {'series': [], 'summary': {}, 'pending': 0,
+           'note': 'alpha 由 refresh_alpha_history() 预计算写回；未补齐的记录计入 pending'}
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % DB, uri=True)
+        recs = c.execute("SELECT date, type, data FROM forecast_history "
+                         "WHERE type IN ('evening','mbm_review') ORDER BY date").fetchall()
+        c.close()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    for tname in ('evening', 'mbm_review'):
+        rows = []
+        biased_days = 0
+        for day, t, ds in recs:
+            if t != tname:
+                continue
+            try:
+                j = json.loads(ds)
+            except Exception:
+                continue
+            total = j.get('total') or 0
+            if not total:
+                continue
+            wr, avg = j.get('winrate'), j.get('avg_return')
+            if wr is None or avg is None:
+                continue
+            a = j.get('alpha') or {}
+            if not a:
+                out['pending'] += 1
+                continue
+            # ★ 有选择偏差的记录（旧口径：只从涨幅榜前 500 取实际涨跌）**不计入**累计超额，
+            #   否则会得出"累计超额 +121%、0 个亏损日"这种荒谬结论。
+            if j.get('biased') if j.get('biased') is not None else _is_biased_record(day, j):
+                biased_days += 1
+                continue
+            row = {'date': j.get('actual_day') or j.get('reviewed') or day,
+                   'total': total, 'winrate': wr, 'avg': avg,
+                   'coverage': j.get('coverage')}
+            row.update(a)
+            rows.append(row)
+        cum = cum_up = 0.0
+        for r in rows:
+            cum += (r.get('alpha_avg') or 0)
+            cum_up += (r.get('alpha_up') or 0)
+            r['cum_alpha'] = round(cum, 2)
+            r['cum_alpha_up'] = round(cum_up, 1)
+        rows.sort(key=lambda x: x['date'])
+        out['series'].append({'name': tname, 'rows': rows, 'biased_days': biased_days})
+        out.setdefault('biased_excluded', {})[tname] = biased_days
+        if rows:
+            out['summary'][tname] = {
+                'days': len(rows),
+                'avg_alpha': round(sum(r.get('alpha_avg') or 0 for r in rows) / len(rows), 2),
+                'avg_alpha_up': round(sum(r.get('alpha_up') or 0 for r in rows) / len(rows), 1),
+                'cum_alpha': round(cum, 2),
+                'cum_alpha_up': round(cum_up, 1),
+                'win_days': sum(1 for r in rows if (r.get('alpha_avg') or 0) > 0),
+                'loss_days': sum(1 for r in rows if (r.get('alpha_avg') or 0) < 0),
+            }
+    return jsonify(out)
+
+
+@app.route('/api/paper-trade')
+def api_paper_trade():
+    """按预测自带的 entry/stop/target 跟踪的**模拟账户**。
+
+    动机：系统每条预测都给 entry（入场）/ stop（止损）/ target（目标），前端也展示了，
+    但**从未跟踪这些参数执行下去会怎样**。真实收益与"选股能力"是两回事 ——
+    即使选股有优势，止损/止盈设置不当照样亏。本接口用历史 prediction_* 存档 + K 线，
+    按这三条线逐日判定"先触发止损还是先触发目标"，给出执行层面的真实结果。
+    """
+    mode = request.args.get('mode', 'short')
+    if mode not in MODE_CFG:
+        mode = 'short'
+    days = max(3, min(60, int(request.args.get('days', 20) or 20)))
+    hold_max = max(1, min(30, int(request.args.get('hold', 5) or 5)))
+    use_stop = request.args.get('use_stop', '1') != '0'
+    top_n = max(5, min(200, int(request.args.get('top', 20) or 20)))
+    out = {'mode': mode, 'days': days, 'hold_max': hold_max,
+           'use_stop': use_stop, 'top_n': top_n, 'trades': [], 'summary': {}}
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % DB, uri=True)
+        # ★ 优先读**分模式**存档（2026-10-13 起写入）；无则回退到旧的单一 'morning'
+        recs = c.execute("SELECT date, data FROM forecast_history WHERE type=? "
+                         "ORDER BY date DESC LIMIT ?", ('morning_' + mode, days)).fetchall()
+        if not recs:
+            recs = c.execute("SELECT date, data FROM forecast_history WHERE type='morning' "
+                             "ORDER BY date DESC LIMIT ?", (days,)).fetchall()
+            out['source'] = 'morning(单一存档，无法区分模式)'
+        else:
+            out['source'] = 'morning_' + mode
+        c.close()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    allt = []
+    for pdate, ds in recs:
+        try:
+            j = json.loads(ds)
+        except Exception:
+            continue
+        items = [i for i in (j.get('items') or []) if i.get('entry') and i.get('stop')]
+        # 只取该模式当前排名前 N（模拟"跟着系统买"）
+        items.sort(key=lambda x: (x.get('rank_score') if x.get('rank_score') is not None
+                                  else x.get('score', 0)), reverse=True)
+        picks = items[:top_n]
+        for it in picks:
+            code = it.get('code')
+            secid = it.get('secid') or (('1.' if str(code).startswith(('6', '9')) else '0.') + str(code))
+            kl = kline_get(secid)
+            if not kl:
+                continue
+            # ★ 找「pdate 之后的第一个交易日」作为入场日。
+            #   修复：原实现**倒序**扫描，命中的是最后一个 bar（最近的），
+            #   导致循环只覆盖 1 根 K 线 → 恒无成交、summary 为空。
+            entry_i = None
+            for i in range(len(kl)):
+                if str(kl[i].get('t'))[:10] > pdate:
+                    entry_i = i
+                    break
+            if entry_i is None or entry_i >= len(kl):
+                continue
+            e, s, t = it.get('entry'), it.get('stop'), it.get('target')
+            if not (e and s and t):
+                continue
+            # 入场日开盘跳空过高（>3%）视为买不到，放弃 —— 与麦唛验证口径一致
+            _op = kl[entry_i].get('o') or kl[entry_i].get('c')
+            if not _op or _op > e * 1.03:
+                continue
+            res = None
+            for jj in range(entry_i, min(len(kl), entry_i + hold_max + 1)):
+                bar = kl[jj]
+                low, high, close = bar.get('l'), bar.get('h'), bar.get('c')
+                if low is None or high is None or close is None:
+                    continue
+                held = jj - entry_i
+                # use_stop=0 时忽略系统的止损线，只按持有天数到期离场 ——
+                # 用来量化回答"系统的止损到底是在保护还是在伤害收益"。
+                if use_stop and low <= s:
+                    res = {'ret': round((s / e - 1) * 100, 2), 'exit': '止损', 'held': held}
+                    break
+                if high >= t:
+                    res = {'ret': round((t / e - 1) * 100, 2), 'exit': '止盈', 'held': held}
+                    break
+                if held >= hold_max:
+                    res = {'ret': round((close / e - 1) * 100, 2), 'exit': '到期', 'held': held}
+                    break
+            if res:
+                res.update({'date': pdate, 'code': code, 'name': it.get('name'),
+                            'entry': e, 'stop': s, 'target': t,
+                            'score': it.get('score'), 'rank': it.get('rank_score')})
+                allt.append(res)
+    if allt:
+        n = len(allt)
+        rets = sorted(x['ret'] for x in allt)
+        wins = [x for x in allt if x['ret'] > 0]
+        ex = {}
+        for x in allt:
+            ex[x['exit']] = ex.get(x['exit'], 0) + 1
+        # ★ 基准对比：不跟基准比，"平均 -0.73%" 无法解读（可能市场整体更差）。
+        #   用每个入场日的全市场宽度均值作为对照（只读缓存，避免慢接口）。
+        bens = []
+        try:
+            for d in {x['date'] for x in allt}:
+                b = market_breadth(d, basis='cc', compute=False)
+                if b:
+                    bens.append(b['avg'])
+        except Exception:
+            pass
+        bench_avg = round(sum(bens) / len(bens), 2) if bens else None
+        out['summary'] = {
+            'trades': n,
+            'win_rate': round(len(wins) * 100.0 / n, 1),
+            'avg_ret': round(sum(rets) / n, 2),
+            'median_ret': round(rets[n // 2], 2),
+            'best': round(rets[-1], 2), 'worst': round(rets[0], 2),
+            'exit_mix': ex,
+            'profit_factor': (round(sum(x['ret'] for x in allt if x['ret'] > 0) /
+                                    abs(sum(x['ret'] for x in allt if x['ret'] < 0)), 2)
+                              if any(x['ret'] < 0 for x in allt) else None),
+            'bench_avg': bench_avg,
+            'bench_days': len(bens),
+            'alpha_vs_bench': (round(sum(rets) / n - bench_avg, 2)
+                               if bench_avg is not None else None),
+        }
+    out['trades'] = sorted(allt, key=lambda x: (x['date'], -x['ret']), reverse=True)[:200]
+    return jsonify(out)
+
+
+@app.route('/api/position-advice')
+def api_position_advice():
+    """基于市场环境 + 近期超额 + 信号权重的**建议仓位**。
+
+    动机：系统此前只回答"买哪只"，从不回答"买多少"。即便选股有 60% 胜率，
+    仓位管理不当一样亏钱。这里把已有的市场环境（phase/coef/涨停数/炸板率）
+    与刚建立的超额收益度量，折算成一个可执行的建议仓位区间。
+    """
+    env = {}
+    try:
+        env = env_temperature() or {}
+    except Exception as e:
+        env = {'error': str(e)[:80]}
+    # 近期超额：★ 必须排除有选择偏差的旧记录 —— 否则会拿"只统计上涨股"的假超额
+    #   得出"策略很强 → 加仓"的错误建议（这是会真金白银亏钱的错误）。
+    alpha_stat = {}
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % DB, uri=True)
+        rows = c.execute("SELECT date, data FROM forecast_history WHERE type='evening' "
+                         "ORDER BY date DESC LIMIT 30").fetchall()
+        c.close()
+        al = []
+        for day, ds in rows:
+            try:
+                j = json.loads(ds)
+            except Exception:
+                continue
+            if _is_biased_record(day, j):
+                continue
+            a = (j.get('alpha') or {}).get('alpha_avg')
+            if a is not None:
+                al.append(a)
+            if len(al) >= 10:
+                break
+        if al:
+            alpha_stat = {'n': len(al), 'avg_alpha': round(sum(al) / len(al), 2),
+                          'win': sum(1 for x in al if x > 0), 'reliable': True}
+    except Exception:
+        pass
+    coef = env.get('coef', 1.0) if isinstance(env, dict) else 1.0
+    try:
+        coef = float(coef)
+    except Exception:
+        coef = 1.0
+    base = 60.0                       # 中性市场基准仓位 60%
+    pos = base * coef
+    reasons = []
+    phase = (env.get('phase') if isinstance(env, dict) else None) or '未知'
+    reasons.append(f'市场阶段「{phase}」，环境系数 {coef}')
+    zb = env.get('zb_rate') if isinstance(env, dict) else None
+    if isinstance(zb, (int, float)):
+        if zb > 40:
+            pos -= 10
+            reasons.append(f'炸板率 {zb}% 偏高（>40%）→ 减 10%')
+        elif zb < 25:
+            pos += 5
+            reasons.append(f'炸板率 {zb}% 偏低（<25%）→ 加 5%')
+    if alpha_stat.get('n', 0) >= 3:
+        if alpha_stat['avg_alpha'] > 0:
+            pos += 5
+            reasons.append(f'近 {alpha_stat["n"]} 次验证平均超额 {alpha_stat["avg_alpha"]:+.2f}% → 加 5%')
+        else:
+            pos -= 10
+            reasons.append(f'近 {alpha_stat["n"]} 次验证平均超额 {alpha_stat["avg_alpha"]:+.2f}% 为负 → 减 10%')
+    else:
+        reasons.append('历史验证样本不足（<3 次），不因策略表现调仓')
+    pos = max(0.0, min(100.0, pos))
+    return jsonify({
+        'position_pct': round(pos, 0),
+        'range': [round(max(0, pos - 10), 0), round(min(100, pos + 10), 0)],
+        'base': base, 'env_coef': coef, 'env': env, 'alpha_recent': alpha_stat,
+        'reasons': reasons,
+        'note': '建议仓位 = 基准60% × 环境系数，再按炸板率与近期超额微调；仅供参考，非投资建议',
+    })
+
+
+@app.route('/api/signal-stats')
+def api_signal_stats():
+    """信号有效性看板：每个信号的历史效应 + 当前排序权重 + 基准宽度
+
+    ⚠️ 基准只读缓存（compute=False）：现场算一次要 36 秒，会拖死请求。
+    """
+    W = signal_weights()
+    return jsonify({
+        'weights': W.get('w') or {},
+        'effects': W.get('sigs') or {},
+        'w_src': W.get('src'),
+        'fit_days': W.get('days'),
+        'fit_days_list': W.get('days_list'),
+        'note': W.get('note'),
+        'breadth_recent': {d: market_breadth(d, compute=False)
+                           for d in (W.get('days_list') or [])[:5]},
+    })
+
+
 def _theme_mainline(force=False):
-    """今日主线题材：涨停池按行业聚合，涨停家数≥3 的行业 = 主线（门槛制，不拍脑袋）。
-    缓存 30 分钟；返回 (主线行业set, 行业明细list)。SCF 上 push2ex 有 hybk 字段，命名与 clist f127 一致"""
+    """今日主线题材：涨停池成分股按**行业映射（同口径）**聚合，涨停家数≥3 的行业 = 主线。
+    缓存 30 分钟；返回 (主线行业set, 行业明细list)。
+
+    2026-10-13 修正：原实现直接用涨停池自带的 `hybk`（东财二级行业，如"出版"），
+    而个股的 industry 若来自另一套命名（一级行业"传媒"）→ 两边永远对不上，sig_theme 恒为 False。
+    现统一改为：涨停池只取**代码**，行业一律查 sm:industry（与个股同一张表、同一套命名），
+    保证 `stock.industry in 主线` 这个判断在口径上成立。
+    """
     if not force and time.time() - _theme_cache['ts'] < 1800:
         return _theme_cache['industries'], _theme_cache['detail']
     with _theme_lock:
@@ -267,17 +1138,32 @@ def _theme_mainline(force=False):
         industries, detail = set(), []
         try:
             from collections import Counter
+            imap = industry_map()
             cnt = Counter()
-            pool = _zt_pool_em(now_cst().strftime('%Y%m%d'))
-            for r in (pool or []):
-                ind = (r.get('hybk') or '').strip()
-                if ind: cnt[ind] += 1
+            hit = 0
+            # 优先用涨停池（Redis 已有则不再发请求）
+            pool_codes = []
+            try:
+                raw = _REDIS.get('sm:ztpool') if _REDIS is not None else None
+                if raw:
+                    pool_codes = [i.get('code') for i in (json.loads(raw).get('items') or [])]
+            except Exception:
+                pool_codes = []
+            if not pool_codes:
+                pool = _zt_pool_em(now_cst().strftime('%Y%m%d'))
+                pool_codes = [str(r.get('c') or '') for r in (pool or [])]
+            for c in pool_codes:
+                ind = imap.get(c)
+                if ind:
+                    cnt[ind] += 1
+                    hit += 1
             detail = [{'name': k, 'count': v} for k, v in cnt.most_common(12)]
             industries = {k for k, v in cnt.items() if v >= 3}   # 门槛制：≥3家涨停才算主线
             _theme_cache['ts'] = time.time()
             _theme_cache['industries'] = industries
             _theme_cache['detail'] = detail
-            print(f'[THEME] 主线题材: {sorted(industries)} ({len(industries)}个)')
+            print(f'[THEME] 主线: {sorted(industries)} ({len(industries)}个)；'
+                  f'涨停 {len(pool_codes)} 只中 {hit} 只有行业映射', flush=True)
         except Exception as e:
             print(f'[THEME ERROR] {e}')
         return industries, detail
@@ -880,6 +1766,8 @@ def quick_scan(pages=55, mode=DEFAULT_MODE):
     数据源：_market_rows()（东财 clist 主源 / 腾讯 qt 兜底），打分逻辑与口径保持一致。"""
     stocks = _market_rows(pages)
     _src_tx = bool(stocks) and ('chg_pct' in stocks[0])
+    # ★ 行业映射（进程内 10 分钟缓存，Redis hash sm:industry）
+    _IMAP = industry_map()
     
     # 拉昨日涨停池（龙头信号数据源，缓存30分钟防漂移）
     leader_codes = _leader_cache.get('codes', set())
@@ -964,7 +1852,12 @@ def quick_scan(pages=55, mode=DEFAULT_MODE):
         except: pass
 
         if qs > 0:
-            _ind = ('' if _src_tx else (s.get('f100', '') or ''))
+            # ★ 2026-10-13：行业改为从 sm:industry 取。
+            #   原实现 `'' if _src_tx else s.get('f100')` —— 走腾讯兜底时恒为空，
+            #   而 clist（唯一提供 f100 的源）已 502 → **行业永远为空** →
+            #   L1517 的 `sig_theme = industry in 主线` 恒为 False，题材信号一直是死的。
+            #   sm:industry 由 refresh_industry() 每日 08:05 cron 维护，与涨停池同口径。
+            _ind = (s.get('f100', '') or '') or _IMAP.get(code, '')
             items.append({
                 'code': code, 'name': name,
                 'price': (s.get('price') if _src_tx else s.get('f2')),
@@ -1526,7 +2419,17 @@ def deep_analyze(candidates, top_n=200, strip_last=True, mode=DEFAULT_MODE, env_
             else:
                 merged['sig_leader'] = False
                 merged['leader_rejected'] = '涨停次日跌 ' + str(round(chg_now, 1)) + '%，当日强度不足'
-        merged['score'] = score
+        merged['score'] = score            # 旧口径：数信号个数（保留，前端在用）
+        # ★ 2026-10-13：新增按**实测有效性**加权的排序分。
+        # 旧 score 对负向信号（wyckoff/vcp/maBull，实测 effect 为负）同样加分 → 越数越差，
+        # 实测 Q1~Q5 收益完全不单调。rank_score 在无历史数据时权重全为 1，与旧分等价。
+        try:
+            _W = signal_weights()
+            merged['rank_score'] = rank_score_of(merged, _W)
+            merged['rank_model'] = {'days': _W.get('days'), 'fit_ts': int(_W.get('fit_ts') or 0)}
+        except Exception as _e:
+            merged['rank_score'] = score
+            merged['rank_model'] = {'error': str(_e)[:60]}
         merged['max_score'] = 6 + w_value + w_leader + w_theme  # 满分（供前端显示）
         merged['mode'] = mode
         merged['scanned_at'] = now_str
@@ -1545,7 +2448,9 @@ def deep_analyze(candidates, top_n=200, strip_last=True, mode=DEFAULT_MODE, env_
                 results.append(f.result())
             except Exception as e:
                 print(f'[DEEP] 单票分析异常（已隔离）: {e}')  # 一只崩不拖垮整批
-    results.sort(key=lambda x: x.get('score', 0), reverse=True)
+    # ★ 2026-10-13：改按 rank_score（信号有效性加权）排序；无历史数据时等价于旧 score
+    results.sort(key=lambda x: (x.get('rank_score') if x.get('rank_score') is not None
+                                else x.get('score', 0)), reverse=True)
     return results
 
 # ========== 主扫描 ==========
@@ -1589,13 +2494,34 @@ def full_scan(mode=DEFAULT_MODE):
     
     deep = deep_analyze(realtime_cands + shape_cands, 500, mode=mode, env_coef=env_coef)
     deep = [i for i in deep if i.get('score', 0) >= 2]  # 1分弱信号不入池
-    deep.sort(key=lambda x: x.get('score',0), reverse=True)
+    # ★ 2026-10-13：按信号有效性加权分排序；并补齐 industry（此前恒为空 → 前端全显示"其他"、
+    #   sig_theme 恒为 False。行业表 sm:industry 由 refresh_industry() 每日 cron 维护）
+    _imap = industry_map()
+    for _d in deep:
+        _c = _d.get('code')
+        if _c and not _d.get('industry'):
+            _d['industry'] = _imap.get(_c, '')
+    deep.sort(key=lambda x: (x.get('rank_score') if x.get('rank_score') is not None
+                             else x.get('score', 0)), reverse=True)
     # RSI 顶层字段（供前端 RSI 筛选——levels 兜底已在，顶层统一）
     for _d in deep:
         _lv = _d.get('levels') or {}
         _d['rsi6'] = _lv.get('rsi6')
         _d['rsi14'] = _lv.get('rsi')
-    cache_set(ck, {'items': deep[:500], 'total': total, 'stage': 'deep', 'maxScore': max_score, 'updated': now_cst().isoformat(), 'mode': mode})
+    # ★ 分层输出：全量 2000+ 只没有操作价值（占全市场 38%）。
+    #   top = 精选（rank_score 前 20 且 score≥4）；watch = 观察池（前 200）；items = 全量备查。
+    _ranked = sorted(deep, key=lambda x: (x.get('rank_score') if x.get('rank_score') is not None
+                                          else x.get('score', 0)), reverse=True)
+    _tiers = {
+        'top': _ranked[:20],
+        'watch': _ranked[:200],
+        'top_n': min(20, len(_ranked)),
+        'watch_n': min(200, len(_ranked)),
+        'full_n': len(deep),
+    }
+    cache_set(ck, {'items': deep[:500], 'tiers': _tiers, 'total': total,
+                   'stage': 'deep', 'maxScore': max_score,
+                   'updated': now_cst().isoformat(), 'mode': mode})
     return deep
 
 # ========== 实时机会引擎 ==========
@@ -2916,10 +3842,20 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
         })
     merged_items, batches_done, created = _merge_morning_items(date_str, batch, top)
     mode_name = {'short': '超短', 'swing': '波段', 'long': '长线'}.get(mode, mode)
-    forecast_save(date_str, 'morning', {'items': merged_items, 'total_scanned': total,
+    _morning_payload = {'items': merged_items, 'total_scanned': total,
         'created': created, 'mode': mode, 'batch': batch, 'batches_done': batches_done,
         'env': env,
-        'summary': f'明日预测 {len(merged_items)} 只（{mode_name}模式 · 满分信号扫描 {total} 只，含当日收盘数据 · 批次{batches_done}）'})
+        'summary': f'明日预测 {len(merged_items)} 只（{mode_name}模式 · 满分信号扫描 {total} 只，含当日收盘数据 · 批次{batches_done}）'}
+    forecast_save(date_str, 'morning', _morning_payload)
+    # ★ 2026-10-13：**按模式分别存档**。
+    #   forecast_history 主键是 (date, type)，原来每种 type 每天只存一条 →
+    #   三档预测互相覆盖，导致"分模式评估"根本不可能（实测 /api/paper-trade 三个模式
+    #   返回完全相同的结果，正是读到同一条记录）。
+    #   新增 morning_short / morning_swing / morning_long，原 'morning' 保留不变以兼容旧逻辑。
+    try:
+        forecast_save(date_str, 'morning_' + mode, _morning_payload)
+    except Exception as _e:
+        print(f'[MORNING] 分模式存档失败（不影响主流程）: {_e}')
     # 回写 prediction_* 缓存（每批完成即前端可见增量；批1完成后为全量）
     cfg = MODE_CFG.get(mode, MODE_CFG[DEFAULT_MODE])
     # 【D4】主线题材明细随预测下发（前端展示"今日主线"）
@@ -3123,9 +4059,42 @@ def run_evening_review():
         lo = [r for r in reviewed if r.get('score',0) < 6]
         hi_wr = round(sum(1 for r in hi if r['actual_chg']>0) / len(hi) * 100, 1) if hi else None
         lo_wr = round(sum(1 for r in lo if r['actual_chg']>0) / len(lo) * 100, 1) if lo else None
-        
+
+        # ★ 2026-10-13：加入**全市场基准与超额收益**。
+        # 没有基准的命中率是没有意义的：31.9% 若等于当日全市场上涨占比，就是零优势。
+        bench, alpha = None, None
+        try:
+            bench = market_breadth(actual_day)
+            if bench:
+                alpha = {
+                    'bench_up_rate': bench['up_rate'], 'bench_avg': bench['avg'],
+                    'bench_median': bench['median'], 'bench_n': bench['n'],
+                    'alpha_up': round(winrate - bench['up_rate'], 1),
+                    'alpha_avg': round(avg - bench['avg'], 2),
+                }
+        except Exception as _e:
+            print(f'[EVENING] 基准计算失败（不影响主流程）: {_e}')
+
+        # ★ 分位收益（用加权排序分；验证"排序是否真的单调"）
+        _qs = None
+        try:
+            _sc = [r for r in reviewed if r.get('rank_score') is not None] or reviewed
+            _sc = sorted(_sc, key=lambda x: x.get('rank_score') if x.get('rank_score') is not None else x.get('score', 0))
+            if len(_sc) >= 50:
+                _qs = []
+                for _q in range(5):
+                    _seg = _sc[_q * len(_sc) // 5:(_q + 1) * len(_sc) // 5]
+                    if _seg:
+                        _qs.append({'q': _q + 1, 'n': len(_seg),
+                                    'avg': round(sum(x['actual_chg'] for x in _seg) / len(_seg), 2),
+                                    'up_rate': round(sum(1 for x in _seg if x['actual_chg'] > 0) * 100.0 / len(_seg), 1)})
+        except Exception:
+            _qs = None
+
         summary = (f'盘后总结（核对 {pred_date} 的明日预测 / 目标交易日 {actual_day}）：'
                    f'入选 {total} 只，上涨 {up} 只，命中率 {winrate}%，平均涨幅 {avg}%。'
+                   + (f'【基准】全市场 {bench["n"]} 只上涨占比 {bench["up_rate"]}%、均值 {bench["avg"]}%'
+                      f'→ 超额 {alpha["alpha_up"]:+.1f}pt / {alpha["alpha_avg"]:+.2f}%。' if alpha else '')
                    + (f'高分股(≥6分)命中率 {hi_wr}%' if hi_wr is not None else '')
                    + (f'，低分股(<6分) {lo_wr}%' if lo_wr is not None else '')
                    + ('。高分显著优于低分，信号有效。' if (hi_wr is not None and lo_wr is not None and hi_wr - lo_wr >= 10) else ''))
@@ -3133,10 +4102,12 @@ def run_evening_review():
         result = {'items': reviewed, 'winrate': winrate, 'avg_return': avg,
                   'up_count': up, 'total': total, 'hi_winrate': hi_wr, 'lo_winrate': lo_wr,
                   'pred_date': pred_date, 'actual_day': actual_day,
+                  'bench': bench, 'alpha': alpha, 'quantiles': _qs,
                   'summary': summary, 'created': now_cst().isoformat()}
         # 存档按「被核对的交易日」归日，而不是运行日 —— 补跑/跨日运行时口径才一致
         forecast_save(actual_day, 'evening', result)
-        print(f"[EVENING] {actual_day} 盘后总结（核对 {pred_date}）: 命中率{winrate}% 平均{avg}%")
+        print(f"[EVENING] {actual_day} 盘后总结（核对 {pred_date}）: 命中率{winrate}% 平均{avg}%"
+              + (f" 超额{alpha['alpha_avg']:+.2f}%" if alpha else ''))
     except Exception as e:
         print(f"[EVENING ERROR] {e}")
 
@@ -3376,9 +4347,23 @@ def mbm_evening_review():
         return
     winrate = round(hits / total * 100)
     avg = round(sum(rets) / total, 2)
+    # ★ 2026-10-13：加基准与超额。麦唛是"开盘买入→收盘"口径，故基准用 basis='oc'
+    #   （全市场 收盘/今开），两者同口径相减才有意义。
+    bench, alpha = None, None
+    try:
+        bench = market_breadth(pred_date, basis='oc')
+        if bench:
+            alpha = {'bench_up_rate': bench['up_rate'], 'bench_avg': bench['avg'],
+                     'bench_n': bench['n'], 'basis': 'oc',
+                     'alpha_up': round(winrate - bench['up_rate'], 1),
+                     'alpha_avg': round(avg - bench['avg'], 2)}
+    except Exception as _e:
+        print(f'[MBM-EVENING] 基准计算失败（不影响主流程）: {_e}')
     review = {'winrate': winrate, 'avg_return': avg, 'total': total, 'up': hits,
               'reviewed': pred_date, 'created': now_cst().isoformat(),
-              'summary': f"麦唛({mode}) Q4名单 {total} 只：命中率 {winrate}%（≥53% 达标：{'✅' if winrate >= 53 else '❌'}），平均收益 {avg}%"}
+              'bench': bench, 'alpha': alpha,
+              'summary': f"麦唛({mode}) Q4名单 {total} 只：命中率 {winrate}%（≥53% 达标：{'✅' if winrate >= 53 else '❌'}），平均收益 {avg}%"
+                         + (f"；基准 {bench['up_rate']}%/{bench['avg']}% → 超额 {alpha['alpha_up']:+.1f}pt/{alpha['alpha_avg']:+.2f}%" if alpha else "")}
     # 更新原预测存档 + 存 evening_mbm
     c = sqlite3.connect(DB)
     try:

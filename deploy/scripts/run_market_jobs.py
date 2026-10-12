@@ -19,7 +19,8 @@ os.environ.setdefault('REDIS_URL',
                       or 'redis://127.0.0.1:6379/0')
 os.environ['PRED_DB'] = '/var/lib/stock-mobile/pred.db'
 sys.path.insert(0, '/opt/stock-mobile/backend')
-from predict_server import refresh_ztpool, refresh_fund, refresh_lhb
+from predict_server import (refresh_ztpool, refresh_fund, refresh_lhb,
+                            refresh_industry, refresh_alpha_history)
 mode = sys.argv[1] if len(sys.argv) > 1 else 'all'
 if mode in ('ztpool', 'all'):
     refresh_ztpool()
@@ -27,4 +28,8 @@ if mode in ('fund', 'all'):
     refresh_fund()
 if mode in ('lhb', 'all'):
     refresh_lhb()
+if mode in ('industry', 'all'):
+    refresh_industry()
+if mode in ('alpha', 'all'):
+    refresh_alpha_history()
 print('[MARKET JOBS]', mode, 'done', flush=True)
