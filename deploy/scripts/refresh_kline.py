@@ -1,21 +1,40 @@
 # -*- coding: utf-8 -*-
-"""K线增量更新（15:05 收盘 + 11:30 午休 + 盘中热股）：已有缓存 → 只拉当天新根 append。
+"""K线增量更新（all 全量 / hot 热股池）。
 
-降速：串行 + 0.35s 间隔（全量 5496 只 ≈ 33 分钟——5分钟窗口~850次，低于腾讯 ifzq 窗口阈值；
-并发2+0.25s(5min~2400次) 曾触发 501 全灭）
+降速：串行 + 0.35s 间隔（腾讯 ifzq 窗口安全阈值；并发 2+0.25s 曾触发 501 全灭）
 
-⚠️ 2026-10-12 修复事故（停摆 6 周，数据一根没更新）：
-  1) 本文件 `from predict_server import ...` 漏了 `kline_get`，而 work() 里调用了它
-     → 每只股票都抛 NameError；
-  2) work() 的 `except Exception: return 0` 把异常静默吞掉 → 表现为
-     「正常跑满 32 分钟 + ok=0/5507」，故障完全不可见，连续 6 周无人发现。
-  修复：补 import + 记录并打印异常样本与失败计数 + 结果落错误日志。
+===== 修复史（都是"数据静默不更新"同一类事故）=====
+
+▌2026-10-12 L1a：漏导入 kline_get（停摆 6 周）
+  本文件 `from predict_server import ...` 漏了 `kline_get`，而 work() 调用了它
+  → 每只股票抛 NameError；又被 `except Exception: return 0` 静默吞掉
+  → 表现为「正常跑满 32 分钟 + ok=0/5507」，故障完全不可见，连续 6 周无人发现。
+  修复：补 import + 异常计数落盘 + 进度行打印 ok。
+
+▌2026-10-12 L1b：all 被 hot 饿死（全市场从未真正日刷）
+  all(5507只) 与 hot(预测池 1874 只，每 10 分钟触发一次，每次跑 45 分钟)
+  共用同一个 flock，hot 几乎不间断持锁 → all 在 11:00/15:05 永远
+  「另一个增量进程在跑，跳过本次」→ 全部 72 条日志里 all 一次都没成功跑过，
+  只有 hot 覆盖的预测池是新的（实测 62.3% 停在上一交易日）。
+  修复：①裁掉 hot 池（只保预测池头部）②hot 加时间预算，超时优雅退出
+        ③收盘后划定 all 独占窗口，hot 主动让路。
+
+▌2026-10-12 L2：腾讯 501 域名级封禁
+  连续批量约 1500-2800 只后触发 HTTP 501，封禁 20-30 分钟。
+  修复：predict_server 侧熔断 + 本文件侧「该更新却没更新」(stale_fail) 熔断。
 """
 import sys, os, time, json, traceback
+from datetime import datetime, timedelta, timezone
 
 _DEF_LOG = '/opt/stock-mobile/refresh_kline_errors.log'
 _err_samples = []
 _err_count = 0
+
+# ---- 可调参数 ----
+HOT_PER_MODE = 350        # hot 池每档取前 N 只（3 档去重后约 900；原为全部 1874 只）
+HOT_BUDGET_S = 1200       # hot 单次时间预算 20 分钟，超时优雅退出（让出锁给 all）
+DAILY_WINDOW = ((15, 45), (17, 30))   # 工作日 all 独占窗口，hot 让路
+_CST = timezone(timedelta(hours=8))
 
 
 def _read_env_file(path, key):
@@ -38,7 +57,7 @@ os.environ.setdefault('REDIS_URL',
 os.environ['PRED_DB'] = '/var/lib/stock-mobile/pred.db'
 sys.path.insert(0, '/opt/stock-mobile/backend')
 
-# ★ 2026-10-12：kline_get 必须导入（work() 用它比对末根日期，此前遗漏）
+# ★ L1a：kline_get 必须导入（work() 用它比对末根日期，此前遗漏）
 from predict_server import _kline_incremental, kline_get, DB, cache_get
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sqlite3
@@ -47,7 +66,25 @@ mode = sys.argv[1] if len(sys.argv) > 1 else 'all'
 seg_start = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 0
 seg_end = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 0
 
-# 跨进程锁（审计 P1：11:30 全量 vs 热股 */10 撞车会双写——flock 串行化）
+
+def _in_daily_window():
+    """是否处于 all 独占窗口（工作日 15:45-17:30）"""
+    try:
+        d = datetime.now(_CST)
+        if d.weekday() >= 5:
+            return False
+        hm = d.hour * 60 + d.minute
+        return (DAILY_WINDOW[0][0] * 60 + DAILY_WINDOW[0][1]) <= hm < (DAILY_WINDOW[1][0] * 60 + DAILY_WINDOW[1][1])
+    except Exception:
+        return False
+
+
+# ★ L1b③：hot 在 all 独占窗口内主动让路，避免把全量日刷饿死
+if mode == 'hot' and _in_daily_window():
+    print('[hot] 处于全量日刷窗口(15:45-17:30)，hot 让路 → 本次跳过', flush=True)
+    sys.exit(0)
+
+# 跨进程锁（all 与 hot 互斥，防双写）
 import fcntl
 _lock_f = open('/tmp/refresh_kline.lock', 'w')
 try:
@@ -58,14 +95,17 @@ except OSError:
 
 c = sqlite3.connect(DB)
 if mode == 'hot':
+    # ★ L1b①：只取预测池头部（原为全部条目，三档去重后 1874 只 → 单次要跑 45 分钟）
     secids = set()
     for ck in ('prediction_short', 'prediction_swing', 'prediction_long'):
         try:
-            for it in ((cache_get(ck) or {}).get('items') or []):
-                if it.get('secid'): secids.add(it['secid'])
+            for it in ((cache_get(ck) or {}).get('items') or [])[:HOT_PER_MODE]:
+                if it.get('secid'):
+                    secids.add(it['secid'])
         except Exception:
             pass
     codes = sorted(secids)
+    print(f'[hot] 预测池头部每档 {HOT_PER_MODE} 只 → 去重后 {len(codes)} 只', flush=True)
 else:
     codes = [r[0] for r in c.execute('SELECT secid FROM klines').fetchall()]
 c.close()
@@ -79,16 +119,21 @@ _stale_fail = 0       # 「缓存末根落后最新交易日」却没能更新�
 _recent = []          # 滚动窗口：最近 N 只里「该更新却没更新」的标记
 _ABORT_WINDOW = 300   # 连续 300 只该更新却没更新 → 判定上游故障，早退
 _aborted = False
+_budget_hit = False
 _LATEST = {'d': ''}   # 最新交易日（从成功更新的结果里学到）
+
+
+def _budget_exceeded():
+    """hot 单次超时（让出锁，防饿死 all）"""
+    return mode == 'hot' and (time.time() - t0) > HOT_BUDGET_S
 
 
 def work(secid):
     """返回 (结果, 是否本该更新)：
        结果 1=末根日期前进（真更新），0=未前进，-1=异常
        本该更新 = 更新前缓存末根 < 已知最新交易日
-    2026-10-12：异常不再静默吞掉——记录样本 + 计数，让管道故障可见。
-    2026-10-12 二修：熔断必须区分「已最新的零」（合法，不该熔断）
-                     与「该更新却没更新的零」（故障，应熔断）。"""
+    L1a：异常不再静默吞掉——记录样本 + 计数，让管道故障可见。
+    L1b：熔断必须区分「已最新的零」（合法，不该熔断）与「该更新却没更新的零」（故障，应熔断）。"""
     global _err_count, _stale_fail
     try:
         old = kline_get(secid)
@@ -130,14 +175,21 @@ with ThreadPoolExecutor(max_workers=1) as ex:
             print('  [ABORT] 连续 %d 只「该更新却没更新」（腾讯 501 且降级源也失效？）'
                   '→ 提前结束，避免空跑并延长封禁' % _ABORT_WINDOW, flush=True)
             break
-        if done % 500 == 0:
+        # ★ L1b②：hot 超预算 → 优雅退出，把锁让给 all
+        if _budget_exceeded():
+            _budget_hit = True
+            print(f'  [BUDGET] hot 已达 {HOT_BUDGET_S}s 预算，提前退出（{done}/{len(codes)}）'
+                  f' 让出锁给全量任务', flush=True)
+            break
+        if done % 200 == 0:
             print(f'  {done}/{len(codes)} elapsed={int(time.time()-t0)}s ok={ok} '
                   f'stale_fail={_stale_fail}', flush=True)
-        time.sleep(0.35)  # 限速（2026-08-28 串行+0.35s：5分钟窗口~850次，腾讯ifzq窗口安全阈值）
+        time.sleep(0.35)  # 限速（腾讯 ifzq 窗口安全阈值）
 
-line = 'INCR_DONE mode=%s ok=%d/%d errors=%d stale_fail=%d elapsed=%ds%s' % (
+line = 'INCR_DONE mode=%s ok=%d/%d errors=%d stale_fail=%d elapsed=%ds%s%s' % (
     mode, ok, len(codes), _err_count, _stale_fail, int(time.time() - t0),
-    ' ABORTED(upstream)' if _aborted else '')
+    ' ABORTED(upstream)' if _aborted else '',
+    ' BUDGET_HIT' if _budget_hit else '')
 print(line, flush=True)
 
 # 异常样本落盘（下次故障 5 秒可定位，不用再花几小时）
