@@ -4364,7 +4364,7 @@ const $0 = (s, t) => {
   for (const [i, n] of t) e[i] = n;
   return e;
 }, S_ = { class: "sim-page" }, x_ = { class: "sim-search" }, C_ = ["disabled"], M_ = { key: 0, class: "sim-results" }, $_ = ["onClick"], T_ = { key: 1, class: "sim-picked" }, E_ = { key: 2, class: "sim-params" }, R_ = { class: "sim-prow" }, z_ = { class: "sim-prow" }, L_ = { class: "sim-mode" }, D_ = { class: "sim-prow" }, P_ = ["disabled"], O_ = { key: 3 }, A_ = { class: "sim-stats" }, N_ = { class: "sim-stat" }, I_ = { class: "sim-stat" }, F_ = { class: "sim-stat" }, V_ = { class: "sim-stat" }, B_ = { class: "down" }, j_ = { class: "sim-verdict" }, W_ = { key: 0, class: "sim-signal" }, H_ = { class: "sim-sig-title" }, K_ = { class: "sim-sig-scores" }, q_ = { class: "sim-sig-list" }, U_ = { class: "sim-sig-note" }, J_ = { class: "sim-trades-title" }, X_ = { class: "sim-trades" }, G_ = { class: "st-left" }, Q_ = { class: "st-sigs" }, Y_ = { key: 0, class: "sim-empty" }, Z_ = { __name: "SimTrade", props: { mode: { type: String, default: "swing" } }, setup(s) {
-  const t = s, e = [{ key: "short", icon: "\u26A1", name: "\u8D85\u77ED", desc: "\u6253\u677F\xB7\u6301\u4ED31-3\u5929" }, { key: "swing", icon: "\u{1F4C8}", name: "\u6CE2\u6BB5", desc: "\u8D8B\u52BF\xB7\u6301\u4ED32-8\u5468" }, { key: "long", icon: "\u{1F3E6}", name: "\u957F\u7EBF", desc: "\u4EF7\u503C\xB7\u6301\u4ED36\u6708+" }], i = { sig_leader: "\u9F99\u5934", sig_trend: "\u8D8B\u52BF", sig_breakH: "\u7A81\u7834", sig_vcp: "VCP", sig_maBull: "\u591A\u5934", sig_maTight: "\u7C98\u5408", sig_bollSq: "\u5E03\u6797\u6536\u53E3", sig_wyckoff: "\u5438\u7B79", sig_fib: "\u6590\u6CE2", sig_kdj: "KDJ\u91D1\u53C9", sig_volDry: "\u5730\u91CF", sig_value: "\u4EF7\u503C", sig_lowBuy: "\u4F4E\u5438", sig_theme: "\u9898\u6750" }, n = P(""), l = P(false), a = P([]), c = P(null), u = P(120), f = P(1), p = P(5), m = P(false), y = P(""), w = P(null);
+  const t = s, e = [{ key: "short", icon: "\u26A1", name: "\u8D85\u77ED", desc: "\u6253\u677F\xB7\u6301\u4ED31-3\u5929" }, { key: "swing", icon: "\u{1F4C8}", name: "\u6CE2\u6BB5", desc: "\u8D8B\u52BF\xB7\u6301\u4ED32-8\u5468" }, { key: "long", icon: "\u{1F3E6}", name: "\u957F\u7EBF", desc: "\u4EF7\u503C\xB7\u6301\u4ED36\u6708+" }], i = { sig_leader: "\u9F99\u5934", sig_trend: "\u8D8B\u52BF", sig_breakH: "\u7A81\u7834", sig_vcp: "VCP", sig_maBull: "\u591A\u5934", sig_maTight: "\u7C98\u5408", sig_bollSq: "\u5E03\u6797\u6536\u53E3", sig_wyckoff: "\u5438\u7B79", sig_fib: "\u6590\u6CE2", sig_kdj: "KDJ\u91D1\u53C9", sig_volDry: "\u5730\u91CF", sig_value: "\u4EF7\u503C" }, n = P(""), l = P(false), a = P([]), c = P(null), u = P(120), f = P(1), p = P(5), m = P(false), y = P(""), w = P(null);
   async function S() {
     if (n.value.trim()) {
       l.value = true;
@@ -6366,7 +6366,7 @@ class p2 extends Ou {
 const m2 = { Bar: (s, t, e, i) => {
   var n;
   const l = t.upColor, a = t.downColor, c = ut(s(e, i)), u = pl(c.Vt[0]) <= pl(c.Vt[3]);
-  return { ce: (n = c.V) !== null && n !== void 0 ? n : u ? l : a };
+  return { ce: (n = c.V) !== null && n !== void 0 ? n : u ? l : { ce: (n = c.V) !== null && n !== void 0 ? n : u ? l : a };
 }, Candlestick: (s, t, e, i) => {
   var n, l, a;
   const c = t.upColor, u = t.downColor, f = t.borderUpColor, p = t.borderDownColor, m = t.wickUpColor, y = t.wickDownColor, w = ut(s(e, i)), S = pl(w.Vt[0]) <= pl(w.Vt[3]);

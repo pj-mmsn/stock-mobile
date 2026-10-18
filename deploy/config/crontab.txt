@@ -6,12 +6,10 @@
 */10 9-14 * * 1-5 timeout --signal=TERM --kill-after=30 5400 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/refresh_kline.py hot >> /opt/stock-mobile/refresh_kline_hot.log 2>&1
 */1 9-15 * * 1-5 /usr/bin/curl -s -X POST http://127.0.0.1:8000/api/refresh-quotes >/dev/null 2>&1
 20 20 * * 1-5 /opt/stock-mobile/run_cron.sh "from predict_server import mbm_evening_review; mbm_evening_review()"
-30 19 * * 1-5 /opt/stock-mobile/run_cron.sh "from predict_server import run_morning_forecast, get_user_mode; run_morning_forecast(strip_last=False, mode=get_user_mode(), batch=0)"
 30 3 * * * timeout --signal=TERM --kill-after=30 1800 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/backup_db.py 7 >> /opt/stock-mobile/backup/backup_cron.log 2>&1
 */30 9-15 * * 1-5 timeout --signal=TERM --kill-after=30 900 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/run_market_jobs.py fund >> /tmp/market_jobs.log 2>&1
 35 19 * * 0-6 timeout --signal=TERM --kill-after=30 900 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/run_refresh_quotes.py >> /opt/stock-mobile/refresh_quotes.log 2>&1
 40 11 * * 1-5 timeout --signal=TERM --kill-after=30 900 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/run_rsi_all.py >> /tmp/rsi_index.log 2>&1
-40 19 * * 1-5 /opt/stock-mobile/run_cron.sh "from predict_server import run_morning_forecast, get_user_mode; run_morning_forecast(strip_last=False, mode=get_user_mode(), batch=1)"
 45 19 * * 1-5 /opt/stock-mobile/run_cron.sh "from predict_server import run_evening_review; run_evening_review()"
 #50 19 * * 1-5 /opt/stock-mobile/factor_pick_cron.sh # 防守榜已砍,停用
 50 15 * * 1-5 timeout --signal=TERM --kill-after=30 5400 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/refresh_kline.py all >> /opt/stock-mobile/refresh_kline.log 2>&1
@@ -22,5 +20,6 @@
 # 每日预测（工作日）：19:30 批0、19:40 批1、19:45 盘后总结
 # 盘前 9:25 竞价后刷新预测（全量重扫）
 5 8 * * 1-5 timeout --signal=TERM --kill-after=30 900 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/run_market_jobs.py industry >> /tmp/market_jobs.log 2>&1
-50 19 * * 1-5 /opt/stock-mobile/run_cron.sh "from predict_server import run_morning_forecast as R; [R(strip_last=False, mode=m) for m in (\"swing\",\"long\")]" 2400
 40 20 * * 1-5 timeout --signal=TERM --kill-after=30 900 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/run_market_jobs.py alpha >> /tmp/market_jobs.log 2>&1
+5 15 * * 1-5 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/post_close.py >> /opt/stock-mobile/post_close.log 2>&1
+30 19 * * 1-5 /opt/stock-mobile/venv/bin/python /opt/stock-mobile/post_close.py --if-needed >> /opt/stock-mobile/post_close.log 2>&1
