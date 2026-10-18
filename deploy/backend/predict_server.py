@@ -743,6 +743,53 @@ def rank_score_of(item, W=None):
     return round(tot, 3)
 
 
+# ========== 信号展示顺序（按实测有效性，2026-10-18）==========
+# 前端预测列表只渲染 sigs 的**前 3 个**标签。原顺序是写死的白名单，与有效性无关，
+# 结果展示出来的恰好是负向信号（实测出现率与有效性呈负相关）：
+#     sig_lowBuy 73.1%(-0.06)  sig_volDry 60.6%(-0.40)  sig_maBull 51.8%(-0.19)
+# 而唯一强正向的 sig_leader(+0.75%) 只在 3.6% 的股票上出现，几乎永远进不了前 3。
+# → 改成按 signal_weights() 的实测权重降序，前端前 3 个自然变成最该看的信号。
+_SIG_ALL = ['sig_trend', 'sig_breakH', 'sig_vcp', 'sig_maBull', 'sig_wyckoff', 'sig_value',
+            'sig_fib', 'sig_bollSq', 'sig_kdj', 'sig_volDry', 'sig_leader', 'sig_maTight',
+            'sig_lowBuy', 'sig_theme']
+
+
+def _sig_weight_map():
+    try:
+        return (signal_weights() or {}).get('w') or {}
+    except Exception:
+        return {}
+
+
+def _sorted_sigs(item, wmap=None):
+    """已触发信号，按实测有效性（权重）降序"""
+    wm = wmap if wmap is not None else _sig_weight_map()
+    on = [k for k in _SIG_ALL if item.get(k) or (k in (item.get('sigs') or []))]
+    try:
+        on.sort(key=lambda k: -float(wm.get(k, 1.0)))
+    except Exception:
+        pass
+    return on
+
+
+def _sig_pn(item, wmap=None):
+    """每个已触发信号的正负标注：pos(正向) / mid(中性) / neg(负向)
+
+    依据：权重 = 1 + 有效性×收缩；>1.05 视为正向，<0.95 视为负向。
+    前端若支持着色即可区分好坏；不支持时也不影响（多下发一个字段而已）。
+    """
+    wm = wmap if wmap is not None else _sig_weight_map()
+    out = {}
+    for k in _SIG_ALL:
+        if item.get(k) or (k in (item.get('sigs') or [])):
+            try:
+                w = float(wm.get(k, 1.0))
+            except Exception:
+                w = 1.0
+            out[k] = 'pos' if w > 1.05 else ('neg' if w < 0.95 else 'mid')
+    return out
+
+
 def _rec_coverage(day, j):
     """估算一条盘后验证记录的**覆盖率** = 已核对只数 / 当时候选池只数。
 
@@ -1099,6 +1146,41 @@ def api_position_advice():
                           'win': sum(1 for x in al if x > 0), 'reliable': True}
     except Exception:
         pass
+    # ★ 2026-10-18：用 5 天真实数据测出**策略 beta ≈ 0.45** ——
+    #   corr(基准涨跌, α) = -0.88、斜率 -0.55 → strategy = bench + α 的 beta = 1-0.55 = 0.45。
+    #   含义：这个策略不是"跑赢市场"，而是**跌得少**（跌市平均 α +0.54%，涨市 -0.06%）。
+    #   直接后果：65% 仓位的**实际市场暴露只有 65%×0.45 ≈ 29%**，对想赚市场收益的人过度保守；
+    #   反过来对只想控回撤的人则是优点。所以必须**把 beta 明示出来**，而不是只给一个仓位数字。
+    beta, beta_n = 1.0, 0
+    try:
+        c = sqlite3.connect('file:%s?mode=ro' % DB, uri=True)
+        rows = c.execute("SELECT date, data FROM forecast_history WHERE type='evening' "
+                         "ORDER BY date").fetchall()
+        c.close()
+        xs, ys = [], []          # xs=基准均涨, ys=策略均涨
+        for day, ds in rows:
+            try:
+                j = json.loads(ds)
+            except Exception:
+                continue
+            if _is_biased_record(day, j):
+                continue
+            a = j.get('alpha') or {}
+            if a.get('bench_avg') is None or j.get('avg_return') is None:
+                continue
+            xs.append(float(a['bench_avg']))
+            ys.append(float(j['avg_return']))
+        if len(xs) >= 3:
+            n = len(xs)
+            mx, my = sum(xs) / n, sum(ys) / n
+            var = sum((x - mx) ** 2 for x in xs) / n
+            if var > 1e-9:
+                cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / n
+                beta = round(cov / var, 2)
+                beta_n = n
+    except Exception as e:
+        print(f'[POS] beta 估计失败（按 1.0 处理）: {e}')
+
     coef = env.get('coef', 1.0) if isinstance(env, dict) else 1.0
     try:
         coef = float(coef)
@@ -1127,12 +1209,37 @@ def api_position_advice():
     else:
         reasons.append('历史验证样本不足（<3 次），不因策略表现调仓')
     pos = max(0.0, min(100.0, pos))
+
+    # ---- beta 换算：仓位 → 实际市场暴露 ----
+    eff = round(pos * beta, 0) if beta_n >= 3 else None
+    target = 60.0
+    pos_for_target = None
+    if beta_n >= 3 and beta > 0.05:
+        pos_for_target = round(min(999.0, target / beta), 0)
+    if beta_n >= 3:
+        reasons.append('实测 beta = %.2f（%d 个交易日），即市场跌 1%% 策略约跌 %.0f%%'
+                       % (beta, beta_n, beta * 100))
+        if eff is not None and eff < target - 10:
+            reasons.append('当前 %d%% 仓位只等于 %.0f%% 的市场暴露（低于目标 %.0f%%）→ '
+                           '若想赚市场收益需提高仓位；若只想控回撤则维持' % (pos, eff, target))
+        elif eff is not None and eff > target + 10:
+            reasons.append('当前 %d%% 仓位的市场暴露已达 %.0f%%，高于目标 %.0f%% → 注意回撤风险'
+                           % (pos, eff, target))
+
     return jsonify({
         'position_pct': round(pos, 0),
         'range': [round(max(0, pos - 10), 0), round(min(100, pos + 10), 0)],
         'base': base, 'env_coef': coef, 'env': env, 'alpha_recent': alpha_stat,
+        # ★ 新增：beta 与暴露换算（2026-10-18，基于 5 天实测）
+        'beta': beta, 'beta_n': beta_n,
+        'effective_exposure': eff,
+        'target_exposure': target,
+        'position_for_target': pos_for_target,
         'reasons': reasons,
-        'note': '建议仓位 = 基准60% × 环境系数，再按炸板率与近期超额微调；仅供参考，非投资建议',
+        'note': '仓位 = 基准60% × 环境系数，再按炸板率与近期超额微调。'
+                'beta 为实测（策略日收益对全市场日收益的回归斜率）：'
+                'beta 越低说明越抗跌，同样仓位对应的市场暴露越小 —— '
+                '「仓位」管的是你把多少钱放进去，「暴露」才是你实际承担的市场风险。仅供参考。',
     })
 
 
@@ -4036,6 +4143,8 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
     deep = deep_analyze(cands, len(cands), strip_last=strip_last, mode=mode, env_coef=env_coef)
     deep = [i for i in deep if i.get('score',0) >= 2]  # 1分弱信号不入池（全市场1分1928只=刷屏，收紧）
     deep.sort(key=lambda x: x.get('score',0), reverse=True)
+    # 信号权重只取一次（进程内已 memo，这里再省掉每只股票的字典构造）
+    _WMAP = _sig_weight_map()
     top = []
     for i in deep:
         top.append({
@@ -4047,9 +4156,15 @@ def _run_forecast_batch(cands, total, date_str, mode, strip_last, batch):
             'rank_model': i.get('rank_model'),
             'price': i.get('price'), 'change_pct': i.get('change_pct'),
             'secid': i.get('secid'), 'board': (i.get('board') or {}).get('board'),
-            'sigs': [k for k in ['sig_trend','sig_breakH','sig_vcp','sig_maBull','sig_wyckoff',
-                'sig_value','sig_fib','sig_bollSq','sig_kdj','sig_volDry','sig_leader',
-                'sig_maTight','sig_lowBuy','sig_theme'] if i.get(k)],
+            # ★ 2026-10-18：sigs **按实测有效性降序**排列（原来按固定白名单顺序）。
+            #   为什么必须这样：前端只显示 sigs 的**前 3 个**标签，而原顺序与有效性无关 ——
+            #   实测（28 天 / 3.2 万样本）出现率最高的恰好是负向信号：
+            #     sig_lowBuy 73%(-0.06) / sig_volDry 61%(-0.40) / sig_maBull 52%(-0.19)
+            #   而唯一强正向的 sig_leader(+0.75%) 只出现在 3.6% 的股票上、几乎永远排不进前 3
+            #   → 典型股票展示的是"空白/地量/多头"三个里两个是拖后腿的。
+            #   改为按 signal_weights() 的权重排序后，前端前 3 个自然是最该看的信号。
+            'sigs': _sorted_sigs(i, _WMAP),
+            'sig_pn': _sig_pn(i, _WMAP),
             'lbc': i.get('lbc', 0),
             'industry': i.get('industry', ''),
             'entry': (i.get('trade') or {}).get('entry'),
@@ -4983,12 +5098,30 @@ def api_debug_kline():
     except Exception as e:
         return jsonify({'ok': False, 'secid': secid, 'error': str(e)})
 
-def _flat_items(items):
-    """trade 对象展开到顶层（entry/stop/target/position 等）——前端读扁平字段，兼容 morning 存档与 full_scan 两种来源"""
+def _flat_items(items, wmap=None):
+    """trade 对象展开到顶层（entry/stop/target/position 等）——前端读扁平字段，兼容 morning 存档与 full_scan 两种来源
+
+    ★ 2026-10-18：同时把 sigs 按**实测有效性降序**、补 sig_pn（正/中/负标注）。
+      为什么必须放在这里，而不是只改 prediction_* 缓存：
+        `api_predict` 每次请求都会用 morning 存档**重建并覆盖**缓存
+        （`cache_set(f'prediction_{mode}', {**resp_data, '_ts': ...})`），
+        所以任何只在 Redis 缓存上做的迁移都会被下一次请求立刻冲掉（实测确认）。
+        在组装层统一处理，缓存 / 存档 / 实时扫描三条路径才会一致。
+      背景：前端只渲染 sigs 的前 3 个标签，而原顺序是按写死的白名单，
+      实测出现率最高的恰好是负向信号（sig_volDry -0.40% / sig_maBull -0.19%），
+      唯一强正向的 sig_leader(+0.75%) 只出现在 3.6% 的股票上、几乎永远进不了前 3。
+    """
+    wm = wmap if wmap is not None else _sig_weight_map()
     out = []
     for i in (items or []):
         t = i.get('trade') or {}
-        out.append({**i, **t})
+        d = {**i, **t}
+        try:
+            d['sigs'] = _sorted_sigs(d, wm)
+            d['sig_pn'] = _sig_pn(d, wm)
+        except Exception:
+            pass
+        out.append(d)
     return out
 
 def _merge_quotes(items):
@@ -5792,9 +5925,13 @@ def refresh_lhb(date_str=None):
         items.sort(key=lambda x: x['netBuy'] or 0, reverse=True)
 
         if items and _REDIS is not None:
+            # ★ 2026-10-18：TTL 24h → 4 天。原来周五 20:10 写入、24 小时后正好在周六 20:10 过期，
+            #   而 cron 只在工作日跑（10 15,20 * * 1-5）→ **整个周末 sm:lhb 都是空的**，
+            #   自检连日失败（[FAIL] sm:lhb 无数据），用户周末点开龙虎榜 tab 一片空白。
+            #   龙虎榜数据按交易日固定、周末不会变，延长到 4 天可跨越周末，周一 15:10 再刷新。
             _REDIS.set('sm:lhb', json.dumps({'items': items, 'total': len(items),
                                              'date': date_str,
-                                             'updated': now_cst().isoformat()}, ensure_ascii=False), ex=86400)
+                                             'updated': now_cst().isoformat()}, ensure_ascii=False), ex=86400 * 4)
         if not items:
             print(f'[LHB] {date_str} 无数据（非交易日或接口变更）——保留旧缓存')
         else:

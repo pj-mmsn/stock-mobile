@@ -1,4 +1,4 @@
-const CACHE = 'stock-mobile-v118'
+const CACHE = 'stock-mobile-v120'
 // 只缓存静态资源，不缓存HTML入口（让浏览器始终请求最新HTML指向最新JS）
 const STATIC = ['./manifest.json', './icon-192.png', './icon-512.png']
 
